@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Slide 4 — Profil</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1242px;
+    height: 2688px;
+    overflow: hidden;
+    font-family: 'Fredoka', sans-serif;
+  }
+  .frame {
+    width: 1242px;
+    height: 2688px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(160deg, #12101C 0%, #1E1B3A 40%, #2A1F5E 100%);
+  }
+  .headline {
+    position: absolute;
+    top: 120px;
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 10;
+  }
+  .headline h2 {
+    font-size: 78px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.12;
+    text-shadow: 0 4px 40px rgba(255,201,60,0.3);
+  }
+  .headline h2 span {
+    color: #FFC93C;
+  }
+  .headline p {
+    font-size: 38px;
+    color: rgba(255,255,255,0.6);
+    margin-top: 24px;
+  }
+  .stats-row {
+    position: absolute;
+    top: 460px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 28px;
+    z-index: 10;
+  }
+  .stat-item {
+    text-align: center;
+    background: rgba(255,255,255,0.06);
+    border-radius: 28px;
+    padding: 28px 44px;
+    border: 1.5px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+  }
+  .stat-item .icon { font-size: 40px; }
+  .stat-item .num {
+    font-size: 48px;
+    font-weight: 700;
+    color: #FFC93C;
+    margin-top: 8px;
+  }
+  .stat-item .label {
+    font-size: 26px;
+    color: rgba(255,255,255,0.5);
+    margin-top: 6px;
+  }
+  .phone-container {
+    position: absolute;
+    bottom: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 680px;
+  }
+  .phone-glow {
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(255,201,60,0.15) 0%, transparent 70%);
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 0;
+  }
+  .phone-mockup {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    border-radius: 54px;
+    overflow: hidden;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(255,201,60,0.25);
+  }
+  .phone-mockup img { width: 100%; display: block; }
+  .deco { position: absolute; border-radius: 50%; opacity: 0.08; }
+  .d1 { width: 350px; height: 350px; background: #FFC93C; top: -120px; right: -120px; }
+  .d2 { width: 250px; height: 250px; background: #6C4CF5; bottom: 500px; left: -80px; }
+  .d3 { width: 180px; height: 180px; background: #3ADEB0; top: 350px; left: 100px; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="deco d1"></div>
+  <div class="deco d2"></div>
+  <div class="deco d3"></div>
+  <div class="headline">
+    <h2><span>Yıldız</span> Kazan<br>Rekor Kır!</h2>
+    <p>İlerlemeni takip et, başarımlar kazan</p>
+  </div>
+  <div class="stats-row">
+    <div class="stat-item">
+      <div class="icon">⭐</div>
+      <div class="num">58</div>
+      <div class="label">Yıldız</div>
+    </div>
+    <div class="stat-item">
+      <div class="icon">🏆</div>
+      <div class="num">5800</div>
+      <div class="label">Puan</div>
+    </div>
+    <div class="stat-item">
+      <div class="icon">✅</div>
+      <div class="num">20</div>
+      <div class="label">Çözülen</div>
+    </div>
+  </div>
+  <div class="phone-container">
+    <div class="phone-glow"></div>
+    <div class="phone-mockup">
+      <img src="IMG_1977.PNG" alt="Profile">
+    </div>
+  </div>
+</div>
+</body>
+</html>

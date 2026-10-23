@@ -1,0 +1,4 @@
+# Betiklerin ürettiği çıktılar (render_header.sh / render_shots.sh ile yeniden üretilir)
+header/output/
+header/header.html
+duo/output/

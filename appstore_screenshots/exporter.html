@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Çizgi Bulmaca — App Store Screenshot Exporter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a14;
+    font-family: 'Fredoka', sans-serif;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px;
+  }
+  h1 { font-size: 32px; margin-bottom: 8px; }
+  .subtitle { color: #9B9BB0; font-size: 18px; margin-bottom: 30px; }
+  .controls {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 14px 28px;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #fff;
+  }
+  button:hover { transform: scale(1.05); }
+  .btn-export {
+    background: linear-gradient(135deg, #6C4CF5, #3ADEB0);
+  }
+  .btn-single {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2) !important;
+  }
+  .btn-single.active {
+    background: rgba(108,76,245,0.3);
+    border-color: #6C4CF5 !important;
+  }
+  .status {
+    color: #3ADEB0;
+    font-size: 18px;
+    margin-bottom: 20px;
+    min-height: 30px;
+  }
+  .preview-container {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+  }
+  .preview-card {
+    background: rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 16px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .preview-card canvas {
+    max-height: 500px;
+    width: auto;
+    border-radius: 8px;
+  }
+  .preview-card p {
+    margin-top: 10px;
+    color: #9B9BB0;
+    font-size: 14px;
+  }
+
+  /* ===== Hidden render area ===== */
+  .render-area {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+  }
+  .screenshot-frame {
+    width: 1242px;
+    height: 2688px;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  /* Common styles */
+  .headline {
+    position: absolute;
+    top: 120px;
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 10;
+  }
+  .headline h2 {
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.12;
+    letter-spacing: -1px;
+  }
+  .headline p {
+    color: rgba(255,255,255,0.6);
+    margin-top: 24px;
+    font-weight: 400;
+  }
+  .phone-container {
+    position: absolute;
+    bottom: -50px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 680px;
+  }
+  .phone-glow {
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 0;
+    border-radius: 50%;
+  }
+  .phone-mockup {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    border-radius: 54px;
+    overflow: hidden;
+  }
+  .phone-mockup img {
+    width: 100%;
+    display: block;
+  }
+  .deco {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.1;
+  }
+
+  /* ===== SLIDE 1: Gameplay ===== */
+  .slide-1 {
+    background: linear-gradient(160deg, #12101C 0%, #1E1B3A 40%, #6C4CF5 100%);
+  }
+  .slide-1 .headline h2 { font-size: 82px; text-shadow: 0 4px 40px rgba(108,76,245,0.5); }
+  .slide-1 .headline h2 span {
+    background: linear-gradient(135deg, #3ADEB0, #6C4CF5);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .slide-1 .headline p { font-size: 38px; }
+  .slide-1 .phone-mockup {
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(108,76,245,0.4);
+  }
+  .slide-1 .phone-glow { background: radial-gradient(circle, rgba(58,222,176,0.25) 0%, transparent 70%); }
+  .slide-1 .d1 { width: 350px; height: 350px; background: #6C4CF5; top: -120px; right: -120px; }
+  .slide-1 .d2 { width: 250px; height: 250px; background: #3ADEB0; bottom: 500px; left: -80px; }
+  .slide-1 .d3 { width: 180px; height: 180px; background: #FFC93C; top: 500px; right: -50px; opacity: 0.06; }
+  .slide-1 .line-deco {
+    position: absolute;
+    width: 200px; height: 200px;
+    border: 3px solid rgba(108,76,245,0.15);
+    border-radius: 50%;
+    top: 600px; left: 80px;
+  }
+  .slide-1 .line-deco2 {
+    position: absolute;
+    width: 120px; height: 120px;
+    border: 3px solid rgba(58,222,176,0.12);
+    border-radius: 50%;
+    top: 520px; right: 120px;
+  }
+
+  /* ===== SLIDE 2: Home ===== */
+  .slide-2 {
+    background: linear-gradient(160deg, #0A2B27 0%, #12101C 45%, #1E1B3A 100%);
+  }
+  .slide-2 .headline h2 { font-size: 78px; text-shadow: 0 4px 40px rgba(58,222,176,0.4); }
+  .slide-2 .headline h2 span { color: #3ADEB0; }
+  .slide-2 .headline p { font-size: 38px; }
+  .slide-2 .badge-row {
+    position: absolute;
+    top: 470px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 28px;
+    z-index: 10;
+  }
+  .slide-2 .badge {
+    padding: 18px 38px;
+    border-radius: 34px;
+    font-size: 32px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .badge-easy { background: rgba(58,222,176,0.2); border: 2px solid rgba(58,222,176,0.5); }
+  .badge-medium { background: rgba(255,170,51,0.2); border: 2px solid rgba(255,170,51,0.5); }
+  .badge-hard { background: rgba(224,64,251,0.2); border: 2px solid rgba(224,64,251,0.5); }
+  .slide-2 .phone-mockup {
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #1A3A35, 0 0 0 8px rgba(58,222,176,0.3);
+  }
+  .slide-2 .phone-glow { background: radial-gradient(circle, rgba(58,222,176,0.2) 0%, transparent 70%); }
+  .slide-2 .d1 { width: 350px; height: 350px; background: #3ADEB0; top: -120px; right: -120px; }
+  .slide-2 .d2 { width: 250px; height: 250px; background: #FFAA33; bottom: 600px; left: -80px; }
+  .slide-2 .d3 { width: 180px; height: 180px; background: #E040FB; top: 350px; right: -50px; opacity: 0.07; }
+
+  /* ===== SLIDE 3: Level Map ===== */
+  .slide-3 {
+    background: linear-gradient(160deg, #2A1F5E 0%, #12101C 45%, #1E1B3A 100%);
+  }
+  .slide-3 .headline h2 { font-size: 76px; text-shadow: 0 4px 40px rgba(224,64,251,0.3); }
+  .slide-3 .headline h2 span { color: #E040FB; }
+  .slide-3 .headline p { font-size: 38px; }
+  .slide-3 .level-badge {
+    position: absolute;
+    top: 450px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    z-index: 10;
+  }
+  .slide-3 .lbadge {
+    padding: 16px 32px;
+    border-radius: 20px;
+    font-size: 30px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+    border: 1.5px solid rgba(255,255,255,0.12);
+  }
+  .slide-3 .lbadge span { opacity: 0.6; }
+  .slide-3 .phone-mockup {
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(224,64,251,0.3);
+  }
+  .slide-3 .phone-glow { background: radial-gradient(circle, rgba(224,64,251,0.2) 0%, transparent 70%); }
+  .slide-3 .d1 { width: 350px; height: 350px; background: #E040FB; top: -120px; right: -120px; }
+  .slide-3 .d2 { width: 250px; height: 250px; background: #FF5C5C; bottom: 500px; left: -80px; }
+  .slide-3 .d3 { width: 180px; height: 180px; background: #FFC93C; top: 500px; left: 100px; opacity: 0.07; }
+
+  /* ===== SLIDE 4: Profile ===== */
+  .slide-4 {
+    background: linear-gradient(160deg, #12101C 0%, #1E1B3A 40%, #2A1F5E 100%);
+  }
+  .slide-4 .headline h2 { font-size: 78px; text-shadow: 0 4px 40px rgba(255,201,60,0.3); }
+  .slide-4 .headline h2 span { color: #FFC93C; }
+  .slide-4 .headline p { font-size: 38px; }
+  .slide-4 .stats-row {
+    position: absolute;
+    top: 460px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 28px;
+    z-index: 10;
+  }
+  .slide-4 .stat-item {
+    text-align: center;
+    background: rgba(255,255,255,0.06);
+    border-radius: 28px;
+    padding: 28px 44px;
+    border: 1.5px solid rgba(255,255,255,0.1);
+  }
+  .slide-4 .stat-item .icon { font-size: 40px; }
+  .slide-4 .stat-item .num {
+    font-size: 48px;
+    font-weight: 700;
+    color: #FFC93C;
+    margin-top: 8px;
+  }
+  .slide-4 .stat-item .label {
+    font-size: 26px;
+    color: rgba(255,255,255,0.5);
+    margin-top: 6px;
+  }
+  .slide-4 .phone-mockup {
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(255,201,60,0.25);
+  }
+  .slide-4 .phone-glow { background: radial-gradient(circle, rgba(255,201,60,0.15) 0%, transparent 70%); }
+  .slide-4 .d1 { width: 350px; height: 350px; background: #FFC93C; top: -120px; right: -120px; opacity: 0.08; }
+  .slide-4 .d2 { width: 250px; height: 250px; background: #6C4CF5; bottom: 500px; left: -80px; }
+  .slide-4 .d3 { width: 180px; height: 180px; background: #3ADEB0; top: 350px; left: 100px; }
+
+  /* ===== SLIDE 5: Onboarding ===== */
+  .slide-5 {
+    background: linear-gradient(160deg, #12101C 0%, #1A1040 40%, #6C4CF5 100%);
+  }
+  .slide-5 .headline h2 { font-size: 78px; text-shadow: 0 4px 40px rgba(108,76,245,0.4); }
+  .slide-5 .headline h2 span {
+    background: linear-gradient(135deg, #FFC93C, #FF6B35);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .slide-5 .headline p { font-size: 38px; }
+  .slide-5 .features-row {
+    position: absolute;
+    top: 460px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    z-index: 10;
+  }
+  .slide-5 .feature {
+    text-align: center;
+    background: rgba(255,255,255,0.06);
+    border-radius: 24px;
+    padding: 24px 28px;
+    border: 1.5px solid rgba(255,255,255,0.1);
+    min-width: 200px;
+  }
+  .slide-5 .feature .icon { font-size: 40px; margin-bottom: 10px; }
+  .slide-5 .feature .text {
+    font-size: 24px;
+    color: rgba(255,255,255,0.7);
+    font-weight: 500;
+  }
+  .slide-5 .phone-mockup {
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(108,76,245,0.3);
+  }
+  .slide-5 .phone-glow { background: radial-gradient(circle, rgba(108,76,245,0.25) 0%, transparent 70%); }
+  .slide-5 .d1 { width: 350px; height: 350px; background: #6C4CF5; top: -120px; left: -120px; }
+  .slide-5 .d2 { width: 250px; height: 250px; background: #FFC93C; bottom: 500px; right: -80px; }
+  .slide-5 .d3 { width: 180px; height: 180px; background: #3ADEB0; top: 350px; left: 100px; opacity: 0.07; }
+</style>
+</head>
+<body>
+
+<h1>📱 App Store Screenshot Exporter</h1>
+<p class="subtitle">1242 × 2688px — Her slaytı teker teker veya hepsini birden indir</p>
+
+<div class="controls">
+  <button class="btn-export" onclick="exportAll()">📥 Tümünü İndir (PNG)</button>
+  <button class="btn-single" onclick="exportOne(1)">1️⃣ Oynanış</button>
+  <button class="btn-single" onclick="exportOne(2)">2️⃣ Ana Ekran</button>
+  <button class="btn-single" onclick="exportOne(3)">3️⃣ Seviye Haritası</button>
+  <button class="btn-single" onclick="exportOne(4)">4️⃣ Profil</button>
+  <button class="btn-single" onclick="exportOne(5)">5️⃣ Başlangıç</button>
+</div>
+
+<div class="status" id="status"></div>
+<div class="preview-container" id="previews"></div>
+
+<!-- ===== HIDDEN RENDER AREA ===== -->
+<div class="render-area" id="renderArea">
+
+  <!-- SLIDE 1: Gameplay -->
+  <div class="screenshot-frame slide-1" id="frame1">
+    <div class="deco d1"></div>
+    <div class="deco d2"></div>
+    <div class="deco d3"></div>
+    <div class="line-deco"></div>
+    <div class="line-deco2"></div>
+    <div class="headline">
+      <h2>Tek Çizgiyle<br><span>Bulmacayı Çöz!</span></h2>
+      <p>Parmağını kaldırmadan tamamla</p>
+    </div>
+    <div class="phone-container">
+      <div class="phone-glow"></div>
+      <div class="phone-mockup">
+        <img src="IMG_1969.PNG" alt="Gameplay" crossorigin="anonymous">
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 2: Home -->
+  <div class="screenshot-frame slide-2" id="frame2">
+    <div class="deco d1"></div>
+    <div class="deco d2"></div>
+    <div class="deco d3"></div>
+    <div class="headline">
+      <h2><span>600+</span> Seviye<br>Seni Bekliyor!</h2>
+      <p>Kolay · Orta · Zor modları keşfet</p>
+    </div>
+    <div class="badge-row">
+      <div class="badge badge-easy">😊 Kolay</div>
+      <div class="badge badge-medium">🔧 Orta</div>
+      <div class="badge badge-hard">🔥 Zor</div>
+    </div>
+    <div class="phone-container">
+      <div class="phone-glow"></div>
+      <div class="phone-mockup">
+        <img src="IMG_1968.PNG" alt="Home" crossorigin="anonymous">
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: Level Map -->
+  <div class="screenshot-frame slide-3" id="frame3">
+    <div class="deco d1"></div>
+    <div class="deco d2"></div>
+    <div class="deco d3"></div>
+    <div class="headline">
+      <h2>Her Seviye<br>Yeni Bir <span>Meydan Okuma</span></h2>
+      <p>200 seviye × 3 zorluk modu</p>
+    </div>
+    <div class="level-badge">
+      <div class="lbadge">🟢 <span>200</span> Kolay</div>
+      <div class="lbadge">🟠 <span>200</span> Orta</div>
+      <div class="lbadge">🟣 <span>200</span> Zor</div>
+    </div>
+    <div class="phone-container">
+      <div class="phone-glow"></div>
+      <div class="phone-mockup">
+        <img src="IMG_1970.PNG" alt="Level Map" crossorigin="anonymous">
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: Profile -->
+  <div class="screenshot-frame slide-4" id="frame4">
+    <div class="deco d1"></div>
+    <div class="deco d2"></div>
+    <div class="deco d3"></div>
+    <div class="headline">
+      <h2><span>Yıldız</span> Kazan<br>Rekor Kır!</h2>
+      <p>İlerlemeni takip et, başarımlar kazan</p>
+    </div>
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="icon">⭐</div>
+        <div class="num">58</div>
+        <div class="label">Yıldız</div>
+      </div>
+      <div class="stat-item">
+        <div class="icon">🏆</div>
+        <div class="num">5800</div>
+        <div class="label">Puan</div>
+      </div>
+      <div class="stat-item">
+        <div class="icon">✅</div>
+        <div class="num">20</div>
+        <div class="label">Çözülen</div>
+      </div>
+    </div>
+    <div class="phone-container">
+      <div class="phone-glow"></div>
+      <div class="phone-mockup">
+        <img src="IMG_1977.PNG" alt="Profile" crossorigin="anonymous">
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: Onboarding -->
+  <div class="screenshot-frame slide-5" id="frame5">
+    <div class="deco d1"></div>
+    <div class="deco d2"></div>
+    <div class="deco d3"></div>
+    <div class="headline">
+      <h2>Kolay Başla<br><span>Ustalaş!</span></h2>
+      <p>Sezgisel oynanış, anında başla</p>
+    </div>
+    <div class="features-row">
+      <div class="feature">
+        <div class="icon">👆</div>
+        <div class="text">Tek Parmak<br>Kontrolü</div>
+      </div>
+      <div class="feature">
+        <div class="icon">🧩</div>
+        <div class="text">Sezgisel<br>Tasarım</div>
+      </div>
+      <div class="feature">
+        <div class="icon">🚀</div>
+        <div class="text">Hemen<br>Oyna</div>
+      </div>
+    </div>
+    <div class="phone-container">
+      <div class="phone-glow"></div>
+      <div class="phone-mockup">
+        <img src="IMG_1965.PNG" alt="Onboarding" crossorigin="anonymous">
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="images_base64.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+// Replace image src with base64 data on load
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof IMAGE_DATA !== 'undefined') {
+    document.querySelectorAll('.render-area img').forEach(img => {
+      const filename = img.getAttribute('src');
+      if (IMAGE_DATA[filename]) {
+        img.src = IMAGE_DATA[filename];
+      }
+    });
+  }
+});
+
+const slideNames = [
+  'cizgi_bulmaca_01_oynaniş',
+  'cizgi_bulmaca_02_ana_ekran',
+  'cizgi_bulmaca_03_seviye_haritasi',
+  'cizgi_bulmaca_04_profil',
+  'cizgi_bulmaca_05_baslangic'
+];
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function waitForImages() {
+  const imgs = document.querySelectorAll('.render-area img');
+  const promises = Array.from(imgs).map(img => {
+    if (img.complete) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+  });
+  await Promise.all(promises);
+}
+
+async function captureFrame(num) {
+  const frame = document.getElementById('frame' + num);
+  if (!frame) return null;
+
+  const canvas = await html2canvas(frame, {
+    width: 1242,
+    height: 2688,
+    scale: 1,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: null,
+    logging: false
+  });
+  return canvas;
+}
+
+async function exportOne(num) {
+  setStatus(`Slayt ${num} işleniyor...`);
+  await waitForImages();
+
+  try {
+    const canvas = await captureFrame(num);
+    if (!canvas) {
+      setStatus('Hata: Frame bulunamadı');
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.download = slideNames[num - 1] + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+
+    setStatus(`✅ Slayt ${num} indirildi: ${slideNames[num - 1]}.png (${canvas.width}×${canvas.height})`);
+  } catch (e) {
+    setStatus('❌ Hata: ' + e.message);
+    console.error(e);
+  }
+}
+
+async function exportAll() {
+  setStatus('Tüm slaytlar işleniyor...');
+  await waitForImages();
+
+  const previewsDiv = document.getElementById('previews');
+  previewsDiv.innerHTML = '';
+
+  for (let i = 1; i <= 5; i++) {
+    setStatus(`Slayt ${i}/5 işleniyor...`);
+    try {
+      const canvas = await captureFrame(i);
+      if (!canvas) continue;
+
+      // Download
+      const link = document.createElement('a');
+      link.download = slideNames[i - 1] + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+
+      // Preview
+      const card = document.createElement('div');
+      card.className = 'preview-card';
+      const previewCanvas = document.createElement('canvas');
+      const scale = 400 / 2688;
+      previewCanvas.width = Math.round(1242 * scale);
+      previewCanvas.height = 400;
+      const ctx = previewCanvas.getContext('2d');
+      ctx.drawImage(canvas, 0, 0, previewCanvas.width, previewCanvas.height);
+      card.appendChild(previewCanvas);
+      const p = document.createElement('p');
+      p.textContent = `${slideNames[i - 1]}.png`;
+      card.appendChild(p);
+      previewsDiv.appendChild(card);
+
+      await new Promise(r => setTimeout(r, 800));
+    } catch (e) {
+      console.error(`Slide ${i} error:`, e);
+    }
+  }
+
+  setStatus('✅ Tüm 5 slayt indirildi! (1242×2688px)');
+}
+
+// Wait for everything to load
+window.addEventListener('load', () => {
+  setStatus('Hazır — bir buton seçerek indirmeye başlayın.');
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Slide 1 — Oynanış</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1242px;
+    height: 2688px;
+    overflow: hidden;
+    font-family: 'Fredoka', sans-serif;
+  }
+  .frame {
+    width: 1242px;
+    height: 2688px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(160deg, #12101C 0%, #1E1B3A 40%, #6C4CF5 100%);
+  }
+  .headline {
+    position: absolute;
+    top: 120px;
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 10;
+  }
+  .headline h2 {
+    font-size: 82px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.12;
+    text-shadow: 0 4px 40px rgba(108,76,245,0.5);
+    letter-spacing: -1px;
+  }
+  .headline h2 span {
+    background: linear-gradient(135deg, #3ADEB0, #6C4CF5);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .headline p {
+    font-size: 38px;
+    color: rgba(255,255,255,0.65);
+    margin-top: 24px;
+    font-weight: 400;
+  }
+  .phone-container {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 680px;
+  }
+  .phone-glow {
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(58,222,176,0.25) 0%, transparent 70%);
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 0;
+  }
+  .phone-mockup {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    border-radius: 54px;
+    overflow: hidden;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.5), 0 0 0 6px #2A2A4A, 0 0 0 8px rgba(108,76,245,0.4);
+  }
+  .phone-mockup img {
+    width: 100%;
+    display: block;
+  }
+  .deco {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.1;
+  }
+  .d1 { width: 350px; height: 350px; background: #6C4CF5; top: -120px; right: -120px; }
+  .d2 { width: 250px; height: 250px; background: #3ADEB0; bottom: 500px; left: -80px; }
+  .d3 { width: 180px; height: 180px; background: #FFC93C; top: 500px; right: -50px; opacity: 0.08; }
+  /* Subtle line decoration */
+  .line-deco {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    border: 3px solid rgba(108,76,245,0.15);
+    border-radius: 50%;
+    top: 600px;
+    left: 80px;
+  }
+  .line-deco2 {
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    border: 3px solid rgba(58,222,176,0.12);
+    border-radius: 50%;
+    top: 520px;
+    right: 120px;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="deco d1"></div>
+  <div class="deco d2"></div>
+  <div class="deco d3"></div>
+  <div class="line-deco"></div>
+  <div class="line-deco2"></div>
+  <div class="headline">
+    <h2>Tek Çizgiyle<br><span>Bulmacayı Çöz!</span></h2>
+    <p>Parmağını kaldırmadan tamamla</p>
+  </div>
+  <div class="phone-container">
+    <div class="phone-glow"></div>
+    <div class="phone-mockup">
+      <img src="IMG_1969.PNG" alt="Gameplay">
+    </div>
+  </div>
+</div>
+</body>
+</html>

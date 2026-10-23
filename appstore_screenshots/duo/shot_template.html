@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Line Puzzle — App Store ekran görüntüsü. Render: shot_template.html?w=2007&h=2853&i=1&lang=en -->
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=block" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#12101C; }
+  #stage { position:relative; overflow:hidden; font-family:'Fredoka', sans-serif; color:#fff; }
+  canvas { position:absolute; inset:0; }
+  .head { position:absolute; left:0; right:0; text-align:center; }
+  h1 { margin:0; font-weight:700; line-height:1.02; letter-spacing:-0.01em; }
+  h1 em { font-style:normal; background:linear-gradient(90deg,#9A80FF,#3ADEB0);
+          -webkit-background-clip:text; background-clip:text; color:transparent; }
+  p { margin:0; font-weight:500; color:rgba(255,255,255,.75); line-height:1.25; }
+  .frame { position:absolute; background:#0B0A12; box-sizing:border-box;
+           box-shadow:0 0 0 2px rgba(255,255,255,.10), 0 0 80px rgba(108,76,245,.45), 0 40px 90px rgba(0,0,0,.55); }
+  .frame img { display:block; width:100%; height:100%; object-fit:cover; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div class="head" id="head"><h1 id="title"></h1><p id="sub"></p></div>
+  <div class="frame" id="frame"><img id="shot" alt=""></div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const W = +q.get('w') || 2007, H = +q.get('h') || 2853;
+const I = +q.get('i') || 1, LANG = q.get('lang') === 'tr' ? 'tr' : 'en';
+const DIR = q.get('dir') || 'screens';        // ham ekranların klasörü
+const ISLAND = q.get('island') === '1';      // telefonda Dynamic Island çiz
+
+// Başlıkta <em> ile vurgulanan kısım gradient olur
+const COPY = {
+  en: [
+    ['One stroke.<br><em>Every line.</em>', 'Connect all lines without lifting your finger'],
+    ['Earn all<br><em>3 stars</em>', 'Solve with no hints and only a few undos'],
+    ['<em>1,200</em> levels', 'Easy, Medium, Hard &amp; Expert'],
+    ['Stuck? Get a<br><em>smart hint</em>', 'Shows your next steps and fixes wrong turns'],
+    ['Track your<br><em>progress</em>', 'Collect stars and unlock achievements'],
+  ],
+  tr: [
+    ['Tek çizgi.<br><em>Tüm şekil.</em>', 'Parmağını kaldırmadan tüm çizgileri birleştir'],
+    ['<em>3 yıldızın</em><br>hepsini kap', 'İpucusuz ve az geri alarak çöz'],
+    ['<em>1.200</em> seviye', 'Kolay, Orta, Zor ve Uzman'],
+    ['Takıldın mı?<br><em>Akıllı ipucu</em>', 'Sonraki adımları gösterir, hatalı yolu düzeltir'],
+    ['İlerlemeni<br><em>takip et</em>', 'Yıldız topla, başarımları aç'],
+  ],
+};
+const FILES = ['01_gameplay', '02_level_complete', '03_home', '04_smart_hint', '05_profile'];
+const [title, sub] = COPY[LANG][I - 1];
+
+const stage = document.getElementById('stage');
+stage.style.width = W + 'px'; stage.style.height = H + 'px';
+const U = W / 100;
+
+// ─── Arka plan (header ile aynı dil) ───
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const ctx = cv.getContext('2d');
+const bg = ctx.createLinearGradient(0, 0, W * 0.3, H);
+bg.addColorStop(0, '#12101C'); bg.addColorStop(0.5, '#1E1B3A'); bg.addColorStop(1, '#2A1F5E');
+ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+function glow(x, y, r, rgb, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+}
+glow(W * 0.5, H * 0.62, W * 0.75, '108,76,245', 0.32);
+glow(W * 0.15, H * 0.08, W * 0.5, '224,64,251', 0.10);
+glow(W * 0.9, H * 0.95, W * 0.55, '58,222,176', 0.14);
+ctx.fillStyle = 'rgba(255,255,255,0.05)';
+const step = 3.4 * U;
+for (let y = step / 2; y < H; y += step)
+  for (let x = step / 2; x < W; x += step) { ctx.beginPath(); ctx.arc(x, y, 0.15 * U, 0, 7); ctx.fill(); }
+let seed = 11 + I; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+for (let k = 0; k < 40; k++) { ctx.fillStyle = 'rgba(255,255,255,.35)';
+  ctx.beginPath(); ctx.arc(rnd() * W, rnd() * H, (0.15 + rnd() * 0.3) * U, 0, 7); ctx.fill(); }
+
+// ─── Yerleşim: üstte başlık, altta ekran (ekranın kendi oranı korunur) ───
+const headTop = H * 0.055, headH = H * 0.20;
+const frameTop = headTop + headH + H * 0.02;
+
+const head = document.getElementById('head');
+Object.assign(head.style, { top: headTop + 'px', height: headH + 'px', padding: `0 ${W * 0.06}px`,
+  display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: H * 0.012 + 'px' });
+const t = document.getElementById('title'); t.innerHTML = title; t.style.fontSize = 8.6 * U + 'px';
+const s = document.getElementById('sub'); s.innerHTML = sub; s.style.fontSize = 3.9 * U + 'px';
+
+const frame = document.getElementById('frame');
+const img = document.getElementById('shot');
+img.src = `${DIR}/${LANG}/${FILES[I - 1]}.png`;
+
+function layoutFrame() {
+  const ratio = img.naturalWidth / img.naturalHeight;
+  let frameH = H - frameTop - H * 0.045;
+  let frameW = frameH * ratio;
+  if (frameW > W * 0.80) { frameW = W * 0.80; frameH = frameW / ratio; }
+  // Telefon ekranının köşeleri daha yuvarlak
+  const bezel = frameW * (ISLAND ? 0.028 : 0.018), radius = frameW * (ISLAND ? 0.15 : 0.065);
+  Object.assign(frame.style, { left: (W - frameW) / 2 + 'px', top: frameTop + 'px', width: frameW + 'px', height: frameH + 'px',
+    padding: bezel + 'px', borderRadius: radius + 'px', position: 'absolute' });
+  img.style.borderRadius = (radius - bezel) + 'px';
+  if (ISLAND) {
+    const pill = document.createElement('div');
+    const pw = frameW * 0.30, ph = pw * 0.29;
+    Object.assign(pill.style, { position: 'absolute', left: (frameW - pw) / 2 + 'px', top: bezel + frameW * 0.03 + 'px',
+      width: pw + 'px', height: ph + 'px', borderRadius: ph + 'px', background: '#000' });
+    frame.appendChild(pill);
+  }
+}
+
+// Başlık alanına sığmazsa küçült
+Promise.all([document.fonts.ready, img.decode()]).then(() => {
+  layoutFrame();
+  const fit = Math.min(1, headH / (t.offsetHeight + s.offsetHeight + H * 0.012));
+  if (fit < 1) { t.style.fontSize = 8.6 * U * fit + 'px'; s.style.fontSize = 3.9 * U * fit + 'px'; }
+  document.body.setAttribute('data-ready', '1');
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,239 @@
+// Mağaza ekran görüntüleri için uygulamanın gerçek ekranlarını render eder.
+// Çalıştırma: flutter test test/_screens_test.dart --update-goldens --dart-define=LANG=en
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cizgi_bulmaca/core/theme/theme_provider.dart';
+import 'package:cizgi_bulmaca/core/services/settings_provider.dart';
+import 'package:cizgi_bulmaca/core/services/game_provider.dart';
+import 'package:cizgi_bulmaca/core/services/achievement_provider.dart';
+import 'package:cizgi_bulmaca/core/services/level_repository.dart';
+import 'package:cizgi_bulmaca/core/services/euler_solver.dart';
+import 'package:cizgi_bulmaca/features/home/home_screen.dart';
+import 'package:cizgi_bulmaca/features/game/game_screen.dart';
+import 'package:cizgi_bulmaca/features/game/game_painter.dart';
+import 'package:cizgi_bulmaca/features/profile/profile_screen.dart';
+
+const lang = String.fromEnvironment('LANG', defaultValue: 'en');
+const materialFonts = String.fromEnvironment('MATERIAL_FONTS');
+
+// Hedef cihaz (mantıksal pt, @3x). Varsayılan: iPhone Duo 669×951.
+const logical = Size(
+  0.0 + int.fromEnvironment('LW', defaultValue: 669),
+  0.0 + int.fromEnvironment('LH', defaultValue: 951),
+);
+const dpr = 0.0 + int.fromEnvironment('DPR', defaultValue: 3);
+// Güvenli alan (pt): Dynamic Island'lı telefonda üst 62, alt 34
+const insetTop = 0.0 + int.fromEnvironment('INSET_TOP', defaultValue: 0);
+const insetBottom = 0.0 + int.fromEnvironment('INSET_BOTTOM', defaultValue: 0);
+const outDir = String.fromEnvironment('OUT', defaultValue: 'test/shots');
+
+Future<void> _loadFont(String family, String path) async {
+  final loader = FontLoader(family)..addFont(Future.value(ByteData.sublistView(File(path).readAsBytesSync())));
+  await loader.load();
+}
+
+Map<String, Object> _prefs() {
+  String progress(int completed, int seed) {
+    final m = <String, dynamic>{};
+    for (int i = 1; i <= completed; i++) {
+      final stars = (i * 7 + seed) % 9 == 0 ? 2 : 3;
+      m['$i'] = {'levelId': i, 'isCompleted': true, 'stars': stars, 'bestMoves': 10, 'bestTimeMs': 20000, 'attempts': 1};
+    }
+    return jsonEncode(m);
+  }
+
+  return {
+    'onboarding_completed': true,
+    'locale': lang,
+    'theme_mode': 'dark',
+    'progress_difficulty_0': progress(86, 1),
+    'progress_difficulty_1': progress(41, 2),
+    'progress_difficulty_2': progress(17, 3),
+    'progress_difficulty_3': progress(5, 4),
+    'last_difficulty': 2,
+    'last_level': 18,
+    'hint_count': 5,
+    'achievements_unlocked': <String>[
+      'first_step', 'star_hunter_10', 'star_hunter_50', 'star_hunter_100', 'star_hunter_500',
+      'easy_master_10', 'easy_master_50', 'medium_master_10', 'hard_master_10',
+      'marathon_25', 'marathon_100', 'hint_user', 'perfect_3', 'speed_demon',
+    ],
+  };
+}
+
+final rootKey = GlobalKey();
+
+Widget _app(Widget home) {
+  return RepaintBoundary(
+    key: rootKey,
+    child: MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => GameProvider()),
+        ChangeNotifierProxyProvider<GameProvider, AchievementProvider>(
+          lazy: false,
+          create: (ctx) => AchievementProvider(ctx.read<GameProvider>()),
+          update: (ctx, gp, prev) => prev ?? AchievementProvider(gp),
+        ),
+      ],
+      child: Consumer2<ThemeProvider, SettingsProvider>(
+        builder: (context, theme, settings, _) => MaterialApp(
+          debugShowCheckedModeBanner: false,
+          locale: Locale(settings.locale),
+          theme: theme.lightTheme,
+          darkTheme: theme.darkTheme,
+          themeMode: ThemeMode.dark,
+          home: home,
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _settle(WidgetTester tester, [int ms = 1200]) async {
+  // Efektler gerçek saatle (Stopwatch) zamanlandığından gerçek zaman da geçsin
+  await tester.runAsync(() => Future.delayed(Duration(milliseconds: ms)));
+  for (int i = 0; i < 12; i++) {
+    await tester.pump(Duration(milliseconds: ms ~/ 12));
+  }
+}
+
+late WidgetTester _t;
+
+/// Kökü 3x çözünürlükte PNG olarak kaydeder
+/// Süre sayacı gerçek Stopwatch kullanır: oyuncunun düşünme süresi kadar gerçek zaman geçir
+Future<void> _thinkingTime(WidgetTester tester, int seconds) async {
+  await tester.runAsync(() => Future.delayed(Duration(seconds: seconds)));
+  await tester.pump(const Duration(seconds: 1));
+}
+
+Future<void> _shot(String name) async {
+  final boundary = rootKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  await _t.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: dpr);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final file = File('$outDir/$lang/$name.png')..createSync(recursive: true);
+    file.writeAsBytesSync(bytes!.buffer.asUint8List());
+  });
+}
+
+/// Oyun tahtasındaki düğümün ekran koordinatı
+Offset Function(int) _nodeLocator(WidgetTester tester, int difficulty, int levelId) {
+  final paint = find.byWidgetPredicate((w) => w is CustomPaint && w.painter is GamePainter);
+  final rect = tester.getRect(paint);
+  final level = LevelRepository.getLevel(difficulty, levelId);
+  final geo = BoardGeometry(rect.size);
+  return (i) => rect.topLeft + geo.toPixel(level.nodes[i]);
+}
+
+List<int> _solution(int d, int id) {
+  final l = LevelRepository.getLevel(d, id);
+  return EulerSolver.findSolution(l.nodes.length, l.edges)!;
+}
+
+Future<void> _setUp(WidgetTester tester) async {
+  _t = tester;
+  tester.view.physicalSize = logical * dpr;
+  tester.view.devicePixelRatio = dpr;
+  tester.view.padding = const FakeViewPadding(top: insetTop * dpr, bottom: insetBottom * dpr);
+  tester.view.viewPadding = const FakeViewPadding(top: insetTop * dpr, bottom: insetBottom * dpr);
+  SharedPreferences.setMockInitialValues(_prefs());
+}
+
+void main() {
+  setUpAll(() async {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    // Ses eklentisi test ortamında yok: kanal çağrılarını sessizce yanıtla
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.allMessagesHandler =
+        (channel, handler, message) {
+      if (channel.startsWith('xyz.luan/audioplayers')) {
+        return Future.value(const StandardMethodCodec().encodeSuccessEnvelope(null));
+      }
+      return handler?.call(message);
+    };
+    await _loadFont('MaterialIcons', '$materialFonts/MaterialIcons-Regular.otf');
+    await _loadFont('Roboto', '$materialFonts/Roboto-Regular.ttf');
+  });
+
+  testWidgets('01 oynanış', (tester) async {
+    await _setUp(tester);
+    await tester.pumpWidget(_app(const GameScreen(levelId: 18, difficulty: 2)));
+    await _settle(tester);
+    final at = _nodeLocator(tester, 2, 18);
+    final sol = _solution(2, 18);
+    final upto = (sol.length * 0.62).round();
+    await _thinkingTime(tester, 41);
+    for (int i = 0; i < upto; i++) {
+      await tester.tapAt(at(sol[i]));
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await _settle(tester, 250);
+    // Parmak bir sonraki düğüme doğru sürükleniyor
+    final from = at(sol[upto - 1]), to = at(sol[upto]);
+    final g = await tester.startGesture(from);
+    for (int k = 1; k <= 6; k++) {
+      await g.moveTo(Offset.lerp(from, to, 0.6 * k / 6)!);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump(const Duration(milliseconds: 16));
+    await _settle(tester, 300);
+    await _shot('01_gameplay');
+    await g.up();
+  });
+
+  testWidgets('02 seviye tamamlandı', (tester) async {
+    await _setUp(tester);
+    await tester.pumpWidget(_app(const GameScreen(levelId: 42, difficulty: 1)));
+    await _settle(tester);
+    final at = _nodeLocator(tester, 1, 42);
+    final sol = _solution(1, 42);
+    await _thinkingTime(tester, 33);
+    for (final n in sol) {
+      await tester.tapAt(at(n));
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await _settle(tester, 1300); // ışık dalgası + sonuç kartının açılması
+    await _settle(tester, 1500); // yıldızlar, butonlar ve konfeti havada
+    await _shot('02_level_complete');
+  });
+
+  testWidgets('03 ana sayfa', (tester) async {
+    await _setUp(tester);
+    await tester.pumpWidget(_app(const HomeScreen()));
+    await _settle(tester, 1500);
+    await _shot('03_home');
+  });
+
+  testWidgets('04 akıllı ipucu', (tester) async {
+    await _setUp(tester);
+    await tester.pumpWidget(_app(const GameScreen(levelId: 6, difficulty: 3)));
+    await _settle(tester);
+    final at = _nodeLocator(tester, 3, 6);
+    final sol = _solution(3, 6);
+    await _thinkingTime(tester, 52);
+    for (int i = 0; i < 9; i++) {
+      await tester.tapAt(at(sol[i]));
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await _settle(tester, 300);
+    await tester.tap(find.byIcon(Icons.lightbulb_rounded).last);
+    await _settle(tester, 3500); // ipucu bildirimi kapansın, kılavuz kalsın
+    await _shot('04_smart_hint');
+  });
+
+  testWidgets('05 profil', (tester) async {
+    await _setUp(tester);
+    await tester.pumpWidget(_app(const ProfileScreen()));
+    await _settle(tester, 1200);
+    await _shot('05_profile');
+  });
+}

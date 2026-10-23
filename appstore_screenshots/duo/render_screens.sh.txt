@@ -1,0 +1,14 @@
+#!/bin/bash
+# Gerçek uygulama ekranlarını render eder (kopya projede, google_fonts varlık olarak)
+set -e
+S=/private/tmp/claude-501/-Users-teknopark-2--Ekim-2026-mobil-7--izgi-Bulmaca/6e9b21d9-8d1f-4600-a8dd-66d276186d97/scratchpad/proj; SP=/private/tmp/claude-501/-Users-teknopark-2--Ekim-2026-mobil-7--izgi-Bulmaca/6e9b21d9-8d1f-4600-a8dd-66d276186d97/scratchpad
+cd "/Users/teknopark/2- Ekim 2026/mobil/7-Çizgi Bulmaca/cizgi_bulmaca"
+rsync -a --exclude ios/Pods --exclude build --exclude .dart_tool --exclude test/_screens_test.dart --exclude test/shots --exclude assets/google_fonts --exclude pubspec.yaml ./ $S/
+cp pubspec.yaml $S/pubspec.yaml
+mkdir -p $S/assets/google_fonts && cp $SP/fonts/Fredoka-Regular.ttf $S/assets/google_fonts/
+sed -i '' 's|    - assets/levels/|    - assets/levels/\n    - assets/google_fonts/|' $S/pubspec.yaml
+FL=$(dirname $(dirname $(readlink -f $(which flutter))))
+cd $S
+for L in ${LANGS:-en tr}; do
+  flutter test test/_screens_test.dart --update-goldens --dart-define=LANG=$L ${EXTRA_DEFINES:-} --dart-define=MATERIAL_FONTS=$FL/bin/cache/artifacts/material_fonts 2>&1 | grep -E "All tests passed|Some tests failed|Exception:" | sort -u
+done
