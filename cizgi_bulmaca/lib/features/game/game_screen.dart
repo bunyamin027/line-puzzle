@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -15,7 +16,11 @@ import '../../core/services/haptic_service.dart';
 import '../../core/services/sound_service.dart';
 import '../../core/services/level_repository.dart';
 import '../../core/services/euler_solver.dart';
+import '../../core/widgets/pressable_scale.dart';
+import '../../models/difficulty.dart';
 import '../../models/level_model.dart';
+import 'game_painter.dart';
+import 'level_complete_dialog.dart';
 
 /// Çizgi Bulmaca — Oynanış Ekranı
 /// Parmağını kaldırmadan düğümler arasında çizgi çiz.
@@ -29,16 +34,18 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
-    with SingleTickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // Level verileri
   late LevelModel _currentLevel;
   late List<Offset> _nodes;       // Normalize edilmiş koordinatlar (0-1)
   late List<List<int>> _edges;    // Kenar bağlantıları
-  
+  late Difficulty _difficulty;
+  double _minNodeDistance = 1.0;  // En yakın iki düğüm arası (normalize)
+
   // Oyun durumu
   final List<int> _visitedNodes = [];
   final List<List<int>> _drawnEdges = [];
+  final List<double> _drawnTimes = []; // _drawnEdges ile paralel: çizilme anı (sn)
   int? _activeNode;
   int _moveCount = 0;
   bool _isCompleted = false;
@@ -49,9 +56,21 @@ class _GameScreenState extends State<GameScreen>
   List<List<int>>? _ghostEdges;   // Kılavuz / önizleme adımları
   Timer? _ghostTimer;             // Kılavuz otomatik kapanma zamanlayıcısı
 
+  // Yıldız hesabı için oturum istatistikleri
+  int _hintsUsed = 0;
+  int _mistakes = 0; // geri alma + dolu tahtayı sıfırlama
+
+  // Efekt zamanlaması
+  final Stopwatch _clock = Stopwatch()..start();
+  final List<GameEffect> _effects = [];
+  double? _completedAt;
+  double _lastInvalidAt = -10;
+  int? _invalidHoverNode;
+
   // Süre ölçümü
   final Stopwatch _stopwatch = Stopwatch();
   int _elapsedMs = 0;
+  final Stream<void> _secondTicks = Stream.periodic(const Duration(seconds: 1));
 
   // Mükemmel seri takibi
   static int _consecutivePerfects = 0;
@@ -59,11 +78,15 @@ class _GameScreenState extends State<GameScreen>
   // Çizim alanı boyutları (LayoutBuilder'dan)
   Size _canvasSize = Size.zero;
 
-  // Node hit radius (piksel)
-  static const double _nodeHitRadius = 36.0;
-
   // Animasyon
-  late AnimationController _pulseController;
+  late final AnimationController _pulseController;
+  late final AnimationController _introController;
+
+  double get _now => _clock.elapsedMicroseconds / 1e6;
+
+  /// Başlangıç halkaları yalnızca Kolay/Orta modda gösterilir;
+  /// üst modlarda doğru başlangıcı bulmak bulmacanın parçası.
+  bool get _showStartHints => widget.difficulty <= 1;
 
   @override
   void initState() {
@@ -80,16 +103,18 @@ class _GameScreenState extends State<GameScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
+    _introController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..forward();
   }
 
   @override
   void didUpdateWidget(covariant GameScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.levelId != widget.levelId || oldWidget.difficulty != widget.difficulty) {
-      _resetLevel();
       _initLevel();
-      _stopwatch.reset();
-      _stopwatch.start();
+      _restartFresh();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           context.read<GameProvider>().setLastPlayed(widget.difficulty, widget.levelId);
@@ -102,17 +127,26 @@ class _GameScreenState extends State<GameScreen>
   void dispose() {
     _ghostTimer?.cancel();
     _pulseController.dispose();
+    _introController.dispose();
     _stopwatch.stop();
     super.dispose();
   }
 
   void _initLevel() {
+    _difficulty = Difficulty.fromIndex(widget.difficulty);
     _currentLevel = LevelRepository.getLevel(widget.difficulty, widget.levelId);
     _nodes = _currentLevel.nodes;
     _edges = _currentLevel.edges;
     _validStartNodes = EulerSolver.getValidStartNodes(_nodes.length, _edges);
     _ghostEdges = null;
     _ghostTimer?.cancel();
+
+    _minNodeDistance = 1.0;
+    for (int i = 0; i < _nodes.length; i++) {
+      for (int j = i + 1; j < _nodes.length; j++) {
+        _minNodeDistance = min(_minNodeDistance, (_nodes[i] - _nodes[j]).distance);
+      }
+    }
   }
 
   /// Ses ve haptic ayarlarını provider'dan senkronize et
@@ -122,28 +156,26 @@ class _GameScreenState extends State<GameScreen>
     SoundService.instance.setEnabled(settings.soundEnabled);
   }
 
-  /// Normalize edilmiş koordinatı piksel pozisyonuna çevir
-  Offset _nodeToPixel(Offset node) {
-    // Canvas'ın kare bölgesini ortala
-    final side = min(_canvasSize.width, _canvasSize.height) * 0.85;
-    final offsetX = (_canvasSize.width - side) / 2;
-    final offsetY = (_canvasSize.height - side) / 2;
-    return Offset(
-      offsetX + node.dx * side,
-      offsetY + node.dy * side,
-    );
-  }
+  BoardGeometry get _geometry => BoardGeometry(_canvasSize);
+
+  /// Yoğun bulmacalarda düğümler sıkışınca dokunma alanları çakışmasın
+  double get _nodeHitRadius => min(36.0, _minNodeDistance * _geometry.side * 0.48);
+
+  double get _nodeRadius => (_minNodeDistance * _geometry.side * 0.26).clamp(9.0, 14.0);
 
   /// Verilen piksel pozisyonuna en yakın düğümü bul (hit radius içinde)
   int? _findNodeAt(Offset position) {
+    final geo = _geometry;
+    int? best;
+    var bestDistance = _nodeHitRadius;
     for (int i = 0; i < _nodes.length; i++) {
-      final nodePos = _nodeToPixel(_nodes[i]);
-      final distance = (position - nodePos).distance;
-      if (distance <= _nodeHitRadius) {
-        return i;
+      final distance = (position - geo.toPixel(_nodes[i])).distance;
+      if (distance <= bestDistance) {
+        best = i;
+        bestDistance = distance;
       }
     }
-    return null;
+    return best;
   }
 
   /// Geçen süreyi formatla (MM:SS)
@@ -154,126 +186,151 @@ class _GameScreenState extends State<GameScreen>
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  // ─── Tahta Durumu Yardımcıları ───────────────────────────
+
+  bool _canConnect(int from, int to) =>
+      from != to && _isAdjacent(from, to) && !_isEdgeDrawn(from, to);
+
+  /// Aktif düğümden [node]'a kenar çizer (setState içinden çağrılmalı)
+  void _connectTo(int node) {
+    HapticService.light();
+    SoundService.instance.playNodeConnect();
+    _drawnEdges.add([_activeNode!, node]);
+    _drawnTimes.add(_now);
+    _visitedNodes.add(node);
+    _activeNode = node;
+    _moveCount++;
+    _invalidHoverNode = null;
+    _addEffect(node, GameEffectKind.connect);
+  }
+
+  /// Tahtayı verilen yola ayarlar; yalnızca son kenar animasyonla çizilir
+  void _setBoard(List<int> visited, List<List<int>> drawn, {bool animateLast = true}) {
+    _visitedNodes
+      ..clear()
+      ..addAll(visited);
+    _drawnEdges
+      ..clear()
+      ..addAll(drawn.map((e) => [e[0], e[1]]));
+    _drawnTimes
+      ..clear()
+      ..addAll(List.filled(_drawnEdges.length, -10.0));
+    if (animateLast && _drawnTimes.isNotEmpty) _drawnTimes.last = _now;
+    _activeNode = _visitedNodes.isNotEmpty ? _visitedNodes.last : null;
+  }
+
+  void _addEffect(int node, GameEffectKind kind) {
+    final now = _now;
+    _effects
+      ..removeWhere((fx) => now - fx.startTime > GameEffect.lifetime)
+      ..add(GameEffect(node, now, kind));
+  }
+
+  /// Hatalı hamle: kırmızı darbe + tahta sarsıntısı + titreşim
+  void _flashInvalid(int node) {
+    HapticService.medium();
+    SoundService.instance.playError();
+    setState(() {
+      _lastInvalidAt = _now;
+      _addEffect(node, GameEffectKind.invalid);
+    });
+  }
+
+  /// Henüz kenar çizilmemişse başlangıç düğümü serbestçe değiştirilebilir
+  void _selectStart(int node) {
+    _visitedNodes
+      ..clear()
+      ..add(node);
+    _activeNode = node;
+    _addEffect(node, GameEffectKind.connect);
+  }
+
   // ─── Dokunma Olayları ────────────────────────────────────
 
   void _onPanStart(DragStartDetails details) {
     if (_isCompleted) return;
 
-    final localPos = details.localPosition;
-    final hitNode = _findNodeAt(localPos);
+    final hitNode = _findNodeAt(details.localPosition);
+    if (hitNode == null) return;
 
-    if (hitNode != null) {
-      // Hafif haptic feedback
-      HapticService.selection();
-
-      setState(() {
-        _lastHintEdge = null;
-        if (_visitedNodes.isEmpty) {
-          // İlk düğüm: çizime başla
-          _visitedNodes.add(hitNode);
-          _activeNode = hitNode;
-          _isDragging = true;
-          _currentDragPos = _nodeToPixel(_nodes[hitNode]);
-        } else if (hitNode == _activeNode) {
-          // Aynı aktif düğümden devam et
-          _isDragging = true;
-          _currentDragPos = _nodeToPixel(_nodes[hitNode]);
-        }
-      });
-    }
+    HapticService.selection();
+    setState(() {
+      _lastHintEdge = null;
+      if (_drawnEdges.isEmpty && hitNode != _activeNode) {
+        _selectStart(hitNode);
+      }
+      if (hitNode == _activeNode) {
+        _isDragging = true;
+        _currentDragPos = _geometry.toPixel(_nodes[hitNode]);
+      }
+    });
+    if (hitNode != _activeNode) _flashInvalid(hitNode);
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
     if (!_isDragging || _isCompleted || _activeNode == null) return;
 
     final localPos = details.localPosition;
+    final hitNode = _findNodeAt(localPos);
+
     setState(() {
       _currentDragPos = localPos;
+      if (hitNode == null || hitNode == _activeNode) {
+        _invalidHoverNode = null;
+      } else if (_canConnect(_activeNode!, hitNode)) {
+        _connectTo(hitNode);
+        _currentDragPos = _geometry.toPixel(_nodes[hitNode]);
+      }
     });
 
-    // Bir düğümün üzerine gelindi mi?
-    final hitNode = _findNodeAt(localPos);
-    if (hitNode != null && hitNode != _activeNode) {
-      if (_isAdjacent(_activeNode!, hitNode) &&
-          !_isEdgeDrawn(_activeNode!, hitNode)) {
-        // Kenar çizme haptic
-        HapticService.light();
-        SoundService.instance.playNodeConnect();
-
-        setState(() {
-          _drawnEdges.add([_activeNode!, hitNode]);
-          _visitedNodes.add(hitNode);
-          _activeNode = hitNode;
-          _moveCount++;
-          _currentDragPos = _nodeToPixel(_nodes[hitNode]);
-
-          // Tüm kenarlar çizildi mi?
-          if (_drawnEdges.length == _edges.length) {
-            _isCompleted = true;
-            _isDragging = false;
-            _currentDragPos = null;
-            _stopwatch.stop();
-            _elapsedMs = _stopwatch.elapsedMilliseconds;
-            // Güçlü haptic
-            HapticService.heavy();
-            SoundService.instance.playLevelComplete();
-            Future.delayed(const Duration(milliseconds: 300), () {
-              if (mounted) _showCompletionDialog();
-            });
-          }
-        });
-      }
+    // Komşu ama zaten çizilmiş kenar: oyuncuya net geri bildirim (girişte bir kez)
+    if (hitNode != null &&
+        hitNode != _activeNode &&
+        hitNode != _invalidHoverNode &&
+        _isAdjacent(_activeNode!, hitNode) &&
+        _isEdgeDrawn(_activeNode!, hitNode)) {
+      _invalidHoverNode = hitNode;
+      _flashInvalid(hitNode);
     }
+
+    if (_drawnEdges.length == _edges.length) _onSolved();
   }
 
   void _onPanEnd(DragEndDetails details) {
     setState(() {
       _isDragging = false;
       _currentDragPos = null;
+      _invalidHoverNode = null;
     });
   }
 
   void _onTapUp(TapUpDetails details) {
     if (_isCompleted) return;
 
-    final localPos = details.localPosition;
-    final hitNode = _findNodeAt(localPos);
+    final hitNode = _findNodeAt(details.localPosition);
+    if (hitNode == null || hitNode == _activeNode) return;
 
-    if (hitNode == null) return;
+    // Henüz kenar yokken: komşu düğüme dokunmak çizer, diğerleri başlangıcı değiştirir
+    if (_drawnEdges.isEmpty &&
+        (_activeNode == null || !_canConnect(_activeNode!, hitNode))) {
+      HapticService.selection();
+      setState(() {
+        _lastHintEdge = null;
+        _selectStart(hitNode);
+      });
+      return;
+    }
 
-    // Hafif haptic
-    HapticService.selection();
-
-    setState(() {
-      _lastHintEdge = null;
-      if (_visitedNodes.isEmpty) {
-        // İlk düğüm seçimi
-        _visitedNodes.add(hitNode);
-        _activeNode = hitNode;
-      } else if (_activeNode != null &&
-          hitNode != _activeNode &&
-          _isAdjacent(_activeNode!, hitNode) &&
-          !_isEdgeDrawn(_activeNode!, hitNode)) {
-        // Tıklayarak da bağlantı yapılabilir
-        HapticService.light();
-        SoundService.instance.playNodeConnect();
-        _drawnEdges.add([_activeNode!, hitNode]);
-        _visitedNodes.add(hitNode);
-        _activeNode = hitNode;
-        _moveCount++;
-
-        if (_drawnEdges.length == _edges.length) {
-          _isCompleted = true;
-          _stopwatch.stop();
-          _elapsedMs = _stopwatch.elapsedMilliseconds;
-          HapticService.heavy();
-          SoundService.instance.playLevelComplete();
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (mounted) _showCompletionDialog();
-          });
-        }
-      }
-    });
+    if (_activeNode != null && _canConnect(_activeNode!, hitNode)) {
+      // Tıklayarak da bağlantı yapılabilir
+      setState(() {
+        _lastHintEdge = null;
+        _connectTo(hitNode);
+      });
+      if (_drawnEdges.length == _edges.length) _onSolved();
+    } else {
+      _flashInvalid(hitNode);
+    }
   }
 
   bool _isAdjacent(int a, int b) {
@@ -291,35 +348,68 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _undoLastMove() {
+    if (_isCompleted) return;
     if (_drawnEdges.isNotEmpty) {
       HapticService.selection();
+      SoundService.instance.playTap();
       setState(() {
         _lastHintEdge = null;
         _drawnEdges.removeLast();
+        _drawnTimes.removeLast();
         _visitedNodes.removeLast();
         _activeNode = _visitedNodes.isNotEmpty ? _visitedNodes.last : null;
         _moveCount = _moveCount > 0 ? _moveCount - 1 : 0;
+        _mistakes++;
+      });
+    } else if (_visitedNodes.isNotEmpty) {
+      HapticService.selection();
+      setState(() {
+        _visitedNodes.clear();
+        _activeNode = null;
       });
     }
   }
 
+  /// Sıfırla butonu: tahtayı temizler (dolu tahtayı sıfırlamak hata sayılır)
   void _resetLevel() {
+    if (_isCompleted) return;
     HapticService.medium();
     SoundService.instance.playTap();
     _ghostTimer?.cancel();
     setState(() {
-      _visitedNodes.clear();
-      _drawnEdges.clear();
-      _activeNode = null;
-      _moveCount = 0;
-      _isCompleted = false;
-      _isDragging = false;
-      _currentDragPos = null;
-      _lastHintEdge = null;
-      _ghostEdges = null;
+      if (_drawnEdges.isNotEmpty) _mistakes++;
+      _clearBoard();
       _stopwatch.reset();
       _stopwatch.start();
     });
+  }
+
+  void _clearBoard() {
+    _visitedNodes.clear();
+    _drawnEdges.clear();
+    _drawnTimes.clear();
+    _effects.clear();
+    _activeNode = null;
+    _moveCount = 0;
+    _isDragging = false;
+    _currentDragPos = null;
+    _lastHintEdge = null;
+    _ghostEdges = null;
+  }
+
+  /// Seviyeyi baştan oynat (istatistikler ve açılış animasyonu dahil)
+  void _restartFresh() {
+    _ghostTimer?.cancel();
+    setState(() {
+      _clearBoard();
+      _isCompleted = false;
+      _completedAt = null;
+      _hintsUsed = 0;
+      _mistakes = 0;
+      _stopwatch.reset();
+      _stopwatch.start();
+    });
+    _introController.forward(from: 0);
   }
 
   void _onHintPressed() {
@@ -336,8 +426,15 @@ class _GameScreenState extends State<GameScreen>
     _handleSmartHint();
   }
 
+  /// İpucu hakkı düşer ve yıldız hesabına işlenir
+  void _consumeHint() {
+    context.read<GameProvider>().useHint();
+    context.read<AchievementProvider>().checkHintUsed();
+    _hintsUsed++;
+  }
+
   void _showNoHintsDialog() {
-    final l10n = context.l10n;
+    final l10n = context.l10nRead;
 
     showDialog(
       context: context,
@@ -395,7 +492,7 @@ class _GameScreenState extends State<GameScreen>
 
   /// Akıllı ipucu analizi ve yönlendirmesi
   void _handleSmartHint() {
-    final l10n = context.l10n;
+    final l10n = context.l10nRead;
 
     final hintResult = EulerSolver.getNextHintStep(
       nodeCount: _nodes.length,
@@ -445,7 +542,7 @@ class _GameScreenState extends State<GameScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        final l10n = context.l10n;
+        final l10n = context.l10nRead;
 
         return Container(
           padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -621,10 +718,10 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+
   /// Çözüm yolunu tahtayı silmeden 10 saniye boyunca parlayan numaralı kılavuz olarak gösterir
   void _activateGhostPreview(HintStepResult hintResult) {
-    context.read<GameProvider>().useHint();
-    context.read<AchievementProvider>().checkHintUsed();
+    _consumeHint();
 
     HapticService.light();
     SoundService.instance.playHint();
@@ -643,7 +740,7 @@ class _GameScreenState extends State<GameScreen>
       });
     });
 
-    final l10n = context.l10n;
+    final l10n = context.l10nRead;
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -677,8 +774,7 @@ class _GameScreenState extends State<GameScreen>
 
   /// Doğru rotaya geçerek kullanıcının ilerleme seviyesine kadar olan adımları hazır çizer
   void _jumpToCorrectPath(HintStepResult hintResult, int stepsToDraw) {
-    context.read<GameProvider>().useHint();
-    context.read<AchievementProvider>().checkHintUsed();
+    _consumeHint();
 
     HapticService.medium();
     SoundService.instance.playHint();
@@ -690,17 +786,17 @@ class _GameScreenState extends State<GameScreen>
       _ghostTimer?.cancel();
       _ghostEdges = null;
 
-      _visitedNodes.clear();
-      _drawnEdges.clear();
-
-      _visitedNodes.add(fullSol[0]);
+      final visited = [fullSol[0]];
+      final drawn = <List<int>>[];
       for (int i = 0; i < validSteps; i++) {
-        final u = fullSol[i];
-        final v = fullSol[i + 1];
-        _drawnEdges.add([u, v]);
-        _visitedNodes.add(v);
+        drawn.add([fullSol[i], fullSol[i + 1]]);
+        visited.add(fullSol[i + 1]);
       }
-      _activeNode = _visitedNodes.last;
+      _setBoard(visited, drawn);
+      // Rota kenarlarını sırayla "akarak" çiz
+      for (int i = 0; i < _drawnTimes.length; i++) {
+        _drawnTimes[i] = _now + i * 0.06;
+      }
       _lastHintEdge = _drawnEdges.isNotEmpty ? _drawnEdges.last : null;
       _moveCount = _drawnEdges.length;
 
@@ -715,22 +811,10 @@ class _GameScreenState extends State<GameScreen>
           if (mounted) setState(() => _ghostEdges = null);
         });
       }
-
-      if (_drawnEdges.length == _edges.length) {
-        _isCompleted = true;
-        _isDragging = false;
-        _currentDragPos = null;
-        _stopwatch.stop();
-        _elapsedMs = _stopwatch.elapsedMilliseconds;
-        HapticService.heavy();
-        SoundService.instance.playLevelComplete();
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) _showCompletionDialog();
-        });
-      }
     });
+    if (_drawnEdges.length == _edges.length) _onSolved();
 
-    final l10n = context.l10n;
+    final l10n = context.l10nRead;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -747,28 +831,27 @@ class _GameScreenState extends State<GameScreen>
 
   /// Tek adımlık doğrudan ipucunu uygular
   void _executeHintStep(HintStepResult hintResult) {
-    context.read<GameProvider>().useHint();
-    context.read<AchievementProvider>().checkHintUsed();
+    _consumeHint();
 
     HapticService.light();
     SoundService.instance.playHint();
 
     setState(() {
       if (hintResult.didRollback) {
-        _visitedNodes.clear();
-        _visitedNodes.addAll(hintResult.rollbackVisitedNodes);
-        _drawnEdges.clear();
-        _drawnEdges.addAll(hintResult.rollbackDrawnEdges);
+        _setBoard(hintResult.rollbackVisitedNodes, hintResult.rollbackDrawnEdges,
+            animateLast: false);
       } else if (_visitedNodes.isEmpty) {
-        _visitedNodes.add(hintResult.fromNode);
+        _setBoard([hintResult.fromNode], const []);
       }
 
       final newEdge = [hintResult.fromNode, hintResult.toNode];
       _drawnEdges.add(newEdge);
+      _drawnTimes.add(_now);
       _visitedNodes.add(hintResult.toNode);
       _activeNode = hintResult.toNode;
       _lastHintEdge = newEdge;
-      _moveCount++;
+      _moveCount = _drawnEdges.length;
+      _addEffect(hintResult.toNode, GameEffectKind.connect);
 
       // Sonraki kılavuz adımları göster (varsa)
       if (hintResult.upcomingSteps.length > 1) {
@@ -778,26 +861,21 @@ class _GameScreenState extends State<GameScreen>
           if (mounted) setState(() => _ghostEdges = null);
         });
       }
-
-      // Tamamlandı mı?
-      if (_drawnEdges.length == _edges.length) {
-        _isCompleted = true;
-        _isDragging = false;
-        _currentDragPos = null;
-        _stopwatch.stop();
-        _elapsedMs = _stopwatch.elapsedMilliseconds;
-        HapticService.heavy();
-        SoundService.instance.playLevelComplete();
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) _showCompletionDialog();
-        });
-      }
     });
+    if (_drawnEdges.length == _edges.length) _onSolved();
+
+    final l10n = context.l10nRead;
+    final message = switch (hintResult.kind) {
+      HintKind.start => l10n.hintStartMsg,
+      HintKind.next => l10n.hintNextMsg,
+      HintKind.rollback => l10n.hintRollbackMsg(hintResult.rollbackCount),
+      HintKind.wrongStart => l10n.hintWrongStartMsg,
+    };
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(hintResult.message),
+        content: Text(message),
         duration: const Duration(seconds: 2),
         backgroundColor: AppColors.primary,
         behavior: SnackBarBehavior.floating,
@@ -805,26 +883,42 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  void _showCompletionDialog() {
-    // Basit yıldız hesabı
-    final parMoves = _edges.length; // Minimum hamle = kenar sayısı
-    int stars;
-    if (_moveCount <= parMoves) {
-      stars = 3;
-    } else if (_moveCount <= parMoves + 2) {
-      stars = 2;
-    } else {
-      stars = 1;
-    }
+  // ─── Tamamlama ───────────────────────────────────────────
 
-    // Mükemmel seri takibi
+  /// 3 yıldız: ipucusuz ve en fazla 3 hata; 2 yıldız: en fazla 1 ipucu ve 10 hata.
+  /// (Hamle sayısı her zaman kenar sayısına eşit olduğundan yıldız ölçütü olamaz.)
+  int _calculateStars() {
+    if (_hintsUsed == 0 && _mistakes <= 3) return 3;
+    if (_hintsUsed <= 1 && _mistakes <= 10) return 2;
+    return 1;
+  }
+
+  void _onSolved() {
+    if (_isCompleted) return;
+    _ghostTimer?.cancel();
+    _stopwatch.stop();
+    _elapsedMs = _stopwatch.elapsedMilliseconds;
+
+    setState(() {
+      _isCompleted = true;
+      _isDragging = false;
+      _currentDragPos = null;
+      _ghostEdges = null;
+      _completedAt = _now;
+    });
+
+    HapticService.heavy();
+    SoundService.instance.playLevelComplete();
+    ScaffoldMessenger.of(context).clearSnackBars();
+
+    final stars = _calculateStars();
     if (stars == 3) {
       _consecutivePerfects++;
     } else {
       _consecutivePerfects = 0;
     }
 
-    // İlerlemeyi kaydet
+    // İlerlemeyi hemen kaydet (oyuncu sonuç ekranını görmeden çıksa bile)
     context.read<GameProvider>().completeLevel(
       difficulty: widget.difficulty,
       levelId: widget.levelId,
@@ -832,107 +926,62 @@ class _GameScreenState extends State<GameScreen>
       moves: _moveCount,
       timeMs: _elapsedMs,
     );
-
-    // Başarım kontrolleri
     final achievementProvider = context.read<AchievementProvider>();
     achievementProvider.checkSpeedDemon(_elapsedMs);
     achievementProvider.checkPerfectStreak(_consecutivePerfects);
 
-    // Reklam (her 3 level'da bir)
-    AdService.instance.onLevelCompleted();
+    // Işık dalgası şeklin üzerinden geçsin, sonra sonuç ekranı
+    Future.delayed(const Duration(milliseconds: 1150), () {
+      if (mounted) _showCompletionDialog(stars);
+    });
+  }
 
-    // Süre formatı
+  void _showCompletionDialog(int stars) {
+    final l10n = context.l10nRead;
+    final locale = context.read<SettingsProvider>().locale;
+    final hasNext = context.read<GameProvider>().hasNextLevel(widget.difficulty, widget.levelId);
     final seconds = (_elapsedMs ~/ 1000) % 60;
     final minutes = (_elapsedMs ~/ 1000) ~/ 60;
-    final l10n = context.l10n;
-    final timeStr = l10n.formatTime(minutes, seconds);
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.borderRadiusLarge),
-        ),
-        title: Text(
-          l10n.congratulations,
-          style: AppTextStyles.headlineMedium,
-          textAlign: TextAlign.center,
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Yıldızlar
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (i) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(
-                    i < stars
-                        ? Icons.star_rounded
-                        : Icons.star_border_rounded,
-                    size: 44,
-                    color: i < stars
-                        ? AppColors.accent
-                        : AppColors.nodeDefault,
-                  ),
-                );
-              }),
+    // Geçiş reklamı, oyuncu sonuç ekranından ayrılırken gösterilir
+    void leave(VoidCallback then) {
+      Navigator.of(context).pop();
+      AdService.instance.onLevelCompleted(onAdClosed: () {
+        if (mounted) then();
+      });
+    }
+
+    LevelCompleteDialog.show(
+      context,
+      stars: stars,
+      levelLabel:
+          '${_difficulty.localizedFor(locale)} • ${l10n.levelAndName(widget.levelId, _currentLevel.localizedName(locale))}',
+      moves: _moveCount,
+      timeText: l10n.formatTime(minutes, seconds),
+      hintsUsed: _hintsUsed,
+      gradient: _difficulty.gradient,
+      hasNextLevel: hasNext,
+      onMenu: () => leave(() => context.pop()),
+      onReplay: () => leave(_restartFresh),
+      onNext: () => leave(() {
+        if (hasNext) {
+          context.pushReplacement('/game/${widget.levelId + 1}?d=${widget.difficulty}');
+        } else {
+          final messenger = ScaffoldMessenger.of(context);
+          context.pop();
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(l10n.difficultyCompleted),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: AppColors.primary,
             ),
-            const SizedBox(height: 16),
-            Text(
-              '${l10n.level} ${widget.levelId} • ${_currentLevel.name}',
-              style: AppTextStyles.bodyLarge.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.touch_app_rounded, size: 18, color: AppColors.secondary),
-                const SizedBox(width: 4),
-                Text(
-                  '$_moveCount ${l10n.moves}',
-                  style: AppTextStyles.titleMedium.copyWith(
-                    color: AppColors.secondary,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Icon(Icons.timer_outlined, size: 18, color: AppColors.primary),
-                const SizedBox(width: 4),
-                Text(
-                  timeStr,
-                  style: AppTextStyles.titleMedium.copyWith(
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              context.pop();
-            },
-            child: Text(l10n.mainMenu),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              context.pushReplacement('/game/${widget.levelId + 1}?d=${widget.difficulty}');
-            },
-            child: Text(l10n.continueText),
-          ),
-        ],
-      ),
+          );
+        }
+      }),
     );
 
-    // Başarım bildirimlerini göster (diyalog kapandıktan kısa süre sonra)
-    Future.delayed(const Duration(milliseconds: 500), () {
+    // Başarım bildirimlerini göster (sonuç kartı belirdikten kısa süre sonra)
+    Future.delayed(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       _showAchievementNotifications();
     });
@@ -980,23 +1029,55 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  // ─── Arayüz ──────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final locale = context.watch<SettingsProvider>().locale;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final primary = Theme.of(context).colorScheme.primary;
+    final progress = _edges.isEmpty ? 0.0 : _drawnEdges.length / _edges.length;
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${l10n.level} ${widget.levelId}', style: AppTextStyles.titleMedium),
-            Text(
-              _currentLevel.name,
-              style: AppTextStyles.labelSmall.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        // Dar ekranda süre/hamle sayaçlarıyla çakışmasın: taşmak yerine küçülür
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${l10n.level} ${widget.levelId}', style: AppTextStyles.titleMedium),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: _difficulty.gradient,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      _difficulty.localized(context),
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              Text(
+                _currentLevel.localizedName(locale),
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
         ),
         leading: IconButton(
           onPressed: () => context.pop(),
@@ -1008,17 +1089,18 @@ class _GameScreenState extends State<GameScreen>
             padding: const EdgeInsets.only(right: 8),
             child: Center(
               child: StreamBuilder(
-                stream: Stream.periodic(const Duration(seconds: 1)),
+                stream: _secondTicks,
                 builder: (context, snapshot) {
                   return Row(
                     children: [
                       Icon(Icons.timer_outlined, size: 18,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
+                        color: onSurface.withValues(alpha: 0.5)),
                       const SizedBox(width: 3),
                       Text(
                         _formattedTime,
                         style: AppTextStyles.labelMedium.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                          color: onSurface.withValues(alpha: 0.6),
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ],
@@ -1035,9 +1117,14 @@ class _GameScreenState extends State<GameScreen>
                 children: [
                   const Icon(Icons.touch_app_rounded, size: 20),
                   const SizedBox(width: 4),
-                  Text(
-                    '$_moveCount',
-                    style: AppTextStyles.titleMedium,
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                    child: Text(
+                      '$_moveCount',
+                      key: ValueKey(_moveCount),
+                      style: AppTextStyles.titleMedium,
+                    ),
                   ),
                 ],
               ),
@@ -1047,17 +1134,39 @@ class _GameScreenState extends State<GameScreen>
       ),
       body: Column(
         children: [
-          // Kenar bilgisi
+          // İlerleme çubuğu + kenar bilgisi
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              l10n.drawnLinesProgress(_drawnEdges.length, _edges.length),
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.5),
-              ),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+            child: Column(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Stack(
+                    children: [
+                      Container(height: 8, color: onSurface.withValues(alpha: 0.08)),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(end: progress),
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, _) => FractionallySizedBox(
+                          widthFactor: value,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(gradient: _difficulty.gradient),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  l10n.drawnLinesProgress(_drawnEdges.length, _edges.length),
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -1073,29 +1182,51 @@ class _GameScreenState extends State<GameScreen>
                   children: [
                     Positioned.fill(
                       child: GestureDetector(
+                        // Sürükleme ilk dokunulan noktadan başlasın: varsayılan
+                        // (start) kaydırma eşiği sonrası konumu verir ve parmak
+                        // o anda düğümün dokunma alanından çıkmış olabilir.
+                        dragStartBehavior: DragStartBehavior.down,
                         onPanStart: _onPanStart,
                         onPanUpdate: _onPanUpdate,
                         onPanEnd: _onPanEnd,
                         onTapUp: _onTapUp,
                         child: AnimatedBuilder(
-                          animation: _pulseController,
+                          animation: Listenable.merge([_pulseController, _introController]),
                           builder: (context, child) {
-                            return CustomPaint(
-                              size: _canvasSize,
-                              painter: _GamePainter(
-                                nodes: _nodes,
-                                edges: _edges,
-                                drawnEdges: _drawnEdges,
-                                lastHintEdge: _lastHintEdge,
-                                activeNode: _activeNode,
-                                visitedNodes: _visitedNodes,
-                                isDragging: _isDragging,
-                                dragPosition: _currentDragPos,
-                                canvasSize: _canvasSize,
-                                isDark: Theme.of(context).brightness == Brightness.dark,
-                                pulseValue: _pulseController.value,
-                                ghostEdges: _ghostEdges,
-                                validStartNodes: _validStartNodes,
+                            final now = _now;
+                            // Hatalı hamlede kısa, sönümlenen yatay sarsıntı
+                            final shakeT = now - _lastInvalidAt;
+                            final shake = shakeT < 0.35
+                                ? sin(shakeT * 70) * 7 * (1 - shakeT / 0.35)
+                                : 0.0;
+                            return Transform.translate(
+                              offset: Offset(shake, 0),
+                              child: CustomPaint(
+                                size: _canvasSize,
+                                painter: GamePainter(
+                                  nodes: _nodes,
+                                  edges: _edges,
+                                  drawnEdges: _drawnEdges,
+                                  drawnTimes: _drawnTimes,
+                                  lastHintEdge: _lastHintEdge,
+                                  activeNode: _activeNode,
+                                  visitedNodes: _visitedNodes,
+                                  isDragging: _isDragging,
+                                  dragPosition: _currentDragPos,
+                                  isDark: Theme.of(context).brightness == Brightness.dark,
+                                  pulseValue: _pulseController.value,
+                                  time: now,
+                                  introProgress: _introController.value,
+                                  completedAt: _completedAt,
+                                  effects: _effects,
+                                  ghostEdges: _ghostEdges,
+                                  startNodes: _showStartHints && _validStartNodes.length == 2
+                                      ? _validStartNodes
+                                      : const [],
+                                  pathStartColor: primary,
+                                  pathEndColor: AppColors.secondary,
+                                  nodeRadius: _nodeRadius,
+                                ),
                               ),
                             );
                           },
@@ -1128,13 +1259,15 @@ class _GameScreenState extends State<GameScreen>
                               children: [
                                 const Icon(Icons.lightbulb_rounded, color: AppColors.accent, size: 18),
                                 const SizedBox(width: 8),
-                                Text(
-                                  _ghostEdges!.length > 2
-                                      ? 'Çözüm Kılavuzu: Numaraları sırayla takip et'
-                                      : 'İpucu: Sonraki adımlar parlıyor',
-                                  style: AppTextStyles.labelSmall.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
+                                Flexible(
+                                  child: Text(
+                                    _ghostEdges!.length > 2
+                                        ? l10n.guideFullSolution
+                                        : l10n.guideNextSteps,
+                                    style: AppTextStyles.labelSmall.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -1161,11 +1294,12 @@ class _GameScreenState extends State<GameScreen>
             padding: const EdgeInsets.all(AppConstants.paddingL),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -2),
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 14,
+                  offset: const Offset(0, -3),
                 ),
               ],
             ),
@@ -1188,6 +1322,7 @@ class _GameScreenState extends State<GameScreen>
                     icon: Icons.lightbulb_rounded,
                     label: l10n.hint,
                     badge: '${context.watch<GameProvider>().hintCount}',
+                    highlight: true,
                     onTap: _onHintPressed,
                   ),
                 ],
@@ -1205,19 +1340,23 @@ class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final String? badge;
+  final bool highlight;
   final VoidCallback onTap;
 
   const _ActionButton({
     required this.icon,
     required this.label,
     this.badge,
+    this.highlight = false,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final primary = Theme.of(context).colorScheme.primary;
+    return PressableScale(
       onTap: onTap,
+      pressedScale: 0.88,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1225,251 +1364,62 @@ class _ActionButton extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
-                  color:
-                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  color: highlight ? null : primary.withValues(alpha: 0.1),
+                  gradient: highlight
+                      ? const LinearGradient(
+                          colors: [Color(0xFFFFD86B), AppColors.accent],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
                   borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+                  boxShadow: highlight
+                      ? [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.4),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: Icon(
-                  icon,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                child: Icon(icon, color: highlight ? Colors.black87 : primary),
               ),
               if (badge != null)
                 Positioned(
-                  top: -4,
-                  right: -4,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent,
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.4),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
+                  top: -6,
+                  right: -6,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                    child: Container(
+                      key: ValueKey(badge),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: primary,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Theme.of(context).colorScheme.surface, width: 2),
+                      ),
+                      child: Text(
+                        badge!,
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
                         ),
-                      ],
-                    ),
-                    child: Text(
-                      badge!,
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: Colors.black87,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(label, style: AppTextStyles.labelSmall),
         ],
       ),
     );
   }
-}
-
-/// Oyun alanı çizici — tüm düğüm ve kenarları çizer
-class _GamePainter extends CustomPainter {
-  final List<Offset> nodes;
-  final List<List<int>> edges;
-  final List<List<int>> drawnEdges;
-  final List<int>? lastHintEdge;
-  final int? activeNode;
-  final List<int> visitedNodes;
-  final bool isDragging;
-  final Offset? dragPosition;
-  final Size canvasSize;
-  final bool isDark;
-  final double pulseValue;
-
-  final List<List<int>>? ghostEdges;
-  final List<int>? validStartNodes;
-
-  _GamePainter({
-    required this.nodes,
-    required this.edges,
-    required this.drawnEdges,
-    this.lastHintEdge,
-    this.activeNode,
-    required this.visitedNodes,
-    required this.isDragging,
-    this.dragPosition,
-    required this.canvasSize,
-    required this.isDark,
-    required this.pulseValue,
-    this.ghostEdges,
-    this.validStartNodes,
-  });
-
-  Offset _nodeToPixel(Offset node) {
-    final side = min(canvasSize.width, canvasSize.height) * 0.85;
-    final offsetX = (canvasSize.width - side) / 2;
-    final offsetY = (canvasSize.height - side) / 2;
-    return Offset(
-      offsetX + node.dx * side,
-      offsetY + node.dy * side,
-    );
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 1) Çizilmemiş kenarlar (soluk çizgiler)
-    final undrawnPaint = Paint()
-      ..color = isDark
-          ? AppColors.nodeDefault.withValues(alpha: 0.2)
-          : AppColors.nodeDefault.withValues(alpha: 0.15)
-      ..strokeWidth = 3.0
-      ..strokeCap = StrokeCap.round;
-
-    for (final edge in edges) {
-      if (!_isEdgeInDrawn(edge[0], edge[1])) {
-        final from = _nodeToPixel(nodes[edge[0]]);
-        final to = _nodeToPixel(nodes[edge[1]]);
-        canvas.drawLine(from, to, undrawnPaint);
-      }
-    }
-
-    // 2) Çizilmiş kenarlar (renkli, kalın)
-    final drawnPaint = Paint()
-      ..color = AppColors.secondary
-      ..strokeWidth = 5.0
-      ..strokeCap = StrokeCap.round;
-
-    for (final edge in drawnEdges) {
-      final isHint = lastHintEdge != null &&
-          ((edge[0] == lastHintEdge![0] && edge[1] == lastHintEdge![1]) ||
-              (edge[0] == lastHintEdge![1] && edge[1] == lastHintEdge![0]));
-
-      final edgePaint = isHint
-          ? (Paint()
-            ..color = AppColors.accent
-            ..strokeWidth = 6.5
-            ..strokeCap = StrokeCap.round)
-          : drawnPaint;
-
-      final from = _nodeToPixel(nodes[edge[0]]);
-      final to = _nodeToPixel(nodes[edge[1]]);
-      canvas.drawLine(from, to, edgePaint);
-    }
-
-    // 2.5) Hayalet / Önizleme Kılavuz Çizgileri (Çözüm rotasını gösterir)
-    if (ghostEdges != null && ghostEdges!.isNotEmpty) {
-      for (int i = 0; i < ghostEdges!.length; i++) {
-        final gEdge = ghostEdges![i];
-        final from = _nodeToPixel(nodes[gEdge[0]]);
-        final to = _nodeToPixel(nodes[gEdge[1]]);
-
-        // Kılavuz neon çizgi
-        final ghostLinePaint = Paint()
-          ..color = AppColors.accent.withValues(alpha: 0.8)
-          ..strokeWidth = 5.0
-          ..strokeCap = StrokeCap.round;
-        canvas.drawLine(from, to, ghostLinePaint);
-
-        // Adım numarası rozeti (çizginin ortasında)
-        final mid = Offset((from.dx + to.dx) / 2, (from.dy + to.dy) / 2);
-        final badgeBg = Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.fill;
-        final badgeBorder = Paint()
-          ..color = AppColors.accent
-          ..strokeWidth = 2.0
-          ..style = PaintingStyle.stroke;
-
-        canvas.drawCircle(mid, 10.0, badgeBg);
-        canvas.drawCircle(mid, 10.0, badgeBorder);
-
-        final textSpan = TextSpan(
-          text: '${i + 1}',
-          style: const TextStyle(
-            color: Colors.black87,
-            fontSize: 10,
-            fontWeight: FontWeight.w900,
-          ),
-        );
-        final tp = TextPainter(
-          text: textSpan,
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas, mid - Offset(tp.width / 2, tp.height / 2));
-      }
-    }
-
-    // 3) Sürükleme çizgisi (aktif düğümden parmağa)
-    if (isDragging && activeNode != null && dragPosition != null) {
-      final dragLinePaint = Paint()
-        ..color = AppColors.primary.withValues(alpha: 0.6)
-        ..strokeWidth = 4.0
-        ..strokeCap = StrokeCap.round;
-
-      final from = _nodeToPixel(nodes[activeNode!]);
-      canvas.drawLine(from, dragPosition!, dragLinePaint);
-    }
-
-    // 4) Düğüm noktaları
-    for (int i = 0; i < nodes.length; i++) {
-      final pos = _nodeToPixel(nodes[i]);
-      final isActive = i == activeNode;
-      final isVisited = visitedNodes.contains(i);
-
-      // Başlangıç düğümü kılavuz halkası (Henüz başlanmamış ve sadece 2 geçerli başlangıç düğümü varsa)
-      if (visitedNodes.isEmpty &&
-          validStartNodes != null &&
-          validStartNodes!.contains(i) &&
-          validStartNodes!.length == 2) {
-        final startPulseRadius = 18.0 + pulseValue * 10.0;
-        final startPulsePaint = Paint()
-          ..color = AppColors.accent.withValues(alpha: 0.45 * (1.0 - pulseValue))
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5;
-        canvas.drawCircle(pos, startPulseRadius, startPulsePaint);
-      }
-
-      // Aktif düğüm pulse efekti
-      if (isActive && !isDragging) {
-        final pulseRadius = 22.0 + pulseValue * 8.0;
-        final pulsePaint = Paint()
-          ..color = AppColors.primary.withValues(alpha: 0.15 + pulseValue * 0.1)
-          ..style = PaintingStyle.fill;
-        canvas.drawCircle(pos, pulseRadius, pulsePaint);
-      }
-
-      // Dış daire
-      final outerRadius = isActive ? 18.0 : 14.0;
-      final outerPaint = Paint()
-        ..color = isActive
-            ? AppColors.primary
-            : isVisited
-                ? AppColors.secondary
-                : (isDark ? AppColors.nodeDefault : const Color(0xFFBBB8CC))
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(pos, outerRadius, outerPaint);
-
-      // İç daire
-      final innerRadius = isActive ? 9.0 : 7.0;
-      final innerPaint = Paint()
-        ..color = isActive
-            ? Colors.white
-            : isVisited
-                ? Colors.white
-                : (isDark ? AppColors.surfaceDark : Colors.white)
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(pos, innerRadius, innerPaint);
-    }
-  }
-
-  bool _isEdgeInDrawn(int a, int b) {
-    return drawnEdges.any(
-      (e) => (e[0] == a && e[1] == b) || (e[0] == b && e[1] == a),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_GamePainter old) => true;
 }

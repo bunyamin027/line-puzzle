@@ -12,6 +12,7 @@ class GameProvider extends ChangeNotifier {
     0: {}, // Kolay
     1: {}, // Orta
     2: {}, // Zor
+    3: {}, // Uzman
   };
 
   int _totalStars = 0;
@@ -43,18 +44,21 @@ class GameProvider extends ChangeNotifier {
   }
 
   /// Belirli bir zorluktaki toplam level sayısı
-  int totalLevelsForDifficulty(int difficulty) {
-    switch (difficulty) {
-      case 0:
-        return AppConstants.easyLevelCount;
-      case 1:
-        return AppConstants.mediumLevelCount;
-      case 2:
-        return AppConstants.hardLevelCount;
-      default:
-        return 200;
+  int totalLevelsForDifficulty(int difficulty) =>
+      AppConstants.levelCountFor(difficulty);
+
+  /// Tüm zorluklarda tamamlanan toplam level sayısı
+  int get totalCompletedLevels {
+    var total = 0;
+    for (int d = 0; d < AppConstants.difficultyCount; d++) {
+      total += completedLevelsCount(d);
     }
+    return total;
   }
+
+  /// Bu zorlukta [levelId]'den sonra oynanacak level var mı?
+  bool hasNextLevel(int difficulty, int levelId) =>
+      levelId < totalLevelsForDifficulty(difficulty);
 
   /// Belirli bir zorluktaki ilerleme yüzdesi (0.0 - 1.0)
   double progressForDifficulty(int difficulty) {
@@ -85,7 +89,9 @@ class GameProvider extends ChangeNotifier {
         maxCompleted = entry.key;
       }
     }
-    return maxCompleted + 1; // Bir sonraki level açık
+    // Bir sonraki level açık (son level'ı aşmasın)
+    final total = totalLevelsForDifficulty(difficulty);
+    return (maxCompleted + 1).clamp(1, total > 0 ? total : 1);
   }
 
   /// Belirli bir level'ın yıldız sayısı
@@ -169,7 +175,7 @@ class GameProvider extends ChangeNotifier {
 
     // Bir sonraki seviyeyi son oynanan olarak ayarla
     _lastPlayedDifficulty = difficulty;
-    _lastPlayedLevel = levelId + 1;
+    _lastPlayedLevel = hasNextLevel(difficulty, levelId) ? levelId + 1 : levelId;
 
     // Toplam yıldız ve puanı yeniden hesapla
     _recalculateTotals();
@@ -218,7 +224,7 @@ class GameProvider extends ChangeNotifier {
   Future<void> _loadProgress() async {
     final prefs = await SharedPreferences.getInstance();
 
-    for (int diff = 0; diff < 3; diff++) {
+    for (int diff = 0; diff < AppConstants.difficultyCount; diff++) {
       final key = 'progress_difficulty_$diff';
       final jsonStr = prefs.getString(key);
       if (jsonStr != null) {
@@ -239,7 +245,8 @@ class GameProvider extends ChangeNotifier {
 
     _totalStars = prefs.getInt(AppConstants.keyTotalStars) ?? 0;
     _totalScore = prefs.getInt(AppConstants.keyTotalScore) ?? 0;
-    _lastPlayedDifficulty = prefs.getInt(AppConstants.keyLastDifficulty) ?? 0;
+    _lastPlayedDifficulty = (prefs.getInt(AppConstants.keyLastDifficulty) ?? 0)
+        .clamp(0, AppConstants.difficultyCount - 1);
     _lastPlayedLevel = prefs.getInt(AppConstants.keyLastLevel) ?? lastUnlockedLevel(_lastPlayedDifficulty);
     _hintCount = prefs.getInt(AppConstants.keyHintCount) ?? AppConstants.defaultHintCount;
 

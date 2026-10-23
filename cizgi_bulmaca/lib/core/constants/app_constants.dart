@@ -3,15 +3,37 @@ class AppConstants {
   AppConstants._();
 
   // ─── Uygulama Bilgileri ──────────────────────────────────
-  static const String appName = 'Çizgi Bulmaca';
+  /// Cihaz ana ekranındaki isim, o dildeki mağaza adıyla uyumlu olmalı (Guideline 2.3.8):
+  /// EN "Line Puzzle: Flow & Focus" → "Line Puzzle",
+  /// TR "Çizgi Bulmaca: Çiz, Çöz, Kazan" → "Çizgi Bulmaca"
+  /// (iOS: Runner/{en,tr}.lproj/InfoPlist.strings).
+  static const String appName = 'Line Puzzle';
+  static const String appNameTr = 'Çizgi Bulmaca';
   static const String appNameEn = 'Line Puzzle';
-  static const String bundleId = 'com.cizgibulmaca.app';
+  static const String bundleId = 'com.kahramanapp.linepuzzle';
 
   // ─── Level Yapısı ────────────────────────────────────────
-  static const int easyLevelCount = 200;
-  static const int mediumLevelCount = 200;
-  static const int hardLevelCount = 200;
-  static const int totalLevelCount = 600;
+  static const int easyLevelCount = 300;
+  static const int mediumLevelCount = 300;
+  static const int hardLevelCount = 300;
+  static const int expertLevelCount = 300;
+  static const int totalLevelCount = 1200;
+  static const int difficultyCount = 4;
+
+  static int levelCountFor(int difficulty) {
+    switch (difficulty) {
+      case 0:
+        return easyLevelCount;
+      case 1:
+        return mediumLevelCount;
+      case 2:
+        return hardLevelCount;
+      case 3:
+        return expertLevelCount;
+      default:
+        return 0;
+    }
+  }
 
   // ─── Yıldız Sistemi ──────────────────────────────────────
   static const int maxStarsPerLevel = 3;
@@ -34,8 +56,8 @@ class AppConstants {
   static const String admobInterstitialAndroidLive = 'ca-app-pub-6930876126004356/8641055653';
   static const String admobInterstitialIosLive = 'ca-app-pub-6930876126004356/9001991614';
 
-  static const String admobRewardedAndroidLive = 'ca-app-pub-XXXXXXXXXXXXXXXX/WWWWWWWWWW';
-  static const String admobRewardedIosLive = 'ca-app-pub-XXXXXXXXXXXXXXXX/WWWWWWWWWW';
+  static const String admobRewardedAndroidLive = 'ca-app-pub-6930876126004356/7255565605';
+  static const String admobRewardedIosLive = 'ca-app-pub-6930876126004356/7056169334';
 
   // ─── Test AdMob Kimlikleri (Google Resmi Test ID'leri) ─────
   static const String admobAppIdAndroidTest = 'ca-app-pub-3940256099942544~3347511713';

@@ -1,5 +1,8 @@
 import 'dart:math';
 
+/// İpucunun hangi durumda üretildiği (arayüzde yerelleştirilmiş mesaj seçimi için)
+enum HintKind { start, next, rollback, wrongStart }
+
 /// İpucu adım sonucu ve durum analizi
 class HintStepResult {
   final int fromNode;
@@ -12,7 +15,7 @@ class HintStepResult {
   final List<int> validStartNodes;
   final List<int> fullSolution;        // 0'dan tam Euler yolu düğüm sırası
   final List<List<int>> upcomingSteps; // Sonraki 1-3 önerilen kenar
-  final String message;
+  final HintKind kind;
 
   const HintStepResult({
     required this.fromNode,
@@ -25,7 +28,7 @@ class HintStepResult {
     this.validStartNodes = const [],
     this.fullSolution = const [],
     this.upcomingSteps = const [],
-    required this.message,
+    required this.kind,
   });
 
   /// Kullanıcının yaptığı hamle sayısı yüksek ve büyük bir geri alma gerekiyor mu?
@@ -62,66 +65,32 @@ class EulerSolver {
   /// Verilen düğüm ve kenar listesi için tam bir Euler yolu bulur.
   /// [currentPath] verilirse o yoldan devam eden bir çözüm arar.
   /// Çözüm düğüm indekslerinin sırasıdır: [v0, v1, v2, ..., vm].
+  ///
+  /// Hierholzer algoritması kullanılır: O(V + E). Önceki geri izlemeli DFS
+  /// büyük graflarda üstel süreye çıkıp UI'ı kilitleyebiliyordu.
   static List<int>? findSolution(
     int nodeCount,
     List<List<int>> edges, [
     List<int>? currentPath,
   ]) {
     final adj = List.generate(nodeCount, (_) => <_EdgeNeighbor>[]);
-    final degrees = List<int>.filled(nodeCount, 0);
-
     for (int idx = 0; idx < edges.length; idx++) {
       final u = edges[idx][0];
       final v = edges[idx][1];
       adj[u].add(_EdgeNeighbor(v, idx));
       adj[v].add(_EdgeNeighbor(u, idx));
-      degrees[u]++;
-      degrees[v]++;
     }
 
-    final oddNodes = <int>[];
-    for (int i = 0; i < nodeCount; i++) {
-      if (degrees[i] % 2 != 0) {
-        oddNodes.add(i);
-      }
-    }
-
-    // Euler teoremi: tek dereceli düğüm sayısı 0 veya 2 olmalı
-    if (oddNodes.isNotEmpty && oddNodes.length != 2) {
-      return null;
-    }
-
-    List<int>? dfs(int cur, Set<int> usedEdges, List<int> path) {
-      if (usedEdges.length == edges.length) {
-        return List<int>.from(path);
-      }
-
-      for (final neighbor in adj[cur]) {
-        if (!usedEdges.contains(neighbor.edgeIndex)) {
-          usedEdges.add(neighbor.edgeIndex);
-          path.add(neighbor.targetNode);
-
-          final result = dfs(neighbor.targetNode, usedEdges, path);
-          if (result != null) return result;
-
-          path.removeLast();
-          usedEdges.remove(neighbor.edgeIndex);
-        }
-      }
-      return null;
-    }
-
-    // Henüz başlanmamışsa: tek dereceli düğümlerden (varsa) veya herhangi birinden başla
+    // Henüz başlanmamışsa: tek dereceli düğümlerden (varsa) veya ilk düğümden başla
     if (currentPath == null || currentPath.isEmpty) {
-      final startCandidates = oddNodes.isNotEmpty
-          ? oddNodes
-          : List.generate(nodeCount, (i) => i);
-
-      for (final start in startCandidates) {
-        final result = dfs(start, <int>{}, [start]);
-        if (result != null) return result;
-      }
-      return null;
+      final odd = _oddNodes(nodeCount, adj, const <int>{});
+      if (odd.isNotEmpty && odd.length != 2) return null;
+      final start = odd.isNotEmpty
+          ? odd.first
+          : adj.indexWhere((n) => n.isNotEmpty);
+      if (start < 0) return null;
+      final trail = _trailFrom(start, adj, <int>{}, edges.length);
+      return trail;
     }
 
     // Başlanmışsa: currentPath içindeki kenarları doğrula
@@ -146,7 +115,61 @@ class EulerSolver {
     }
 
     final cur = currentPath.last;
-    return dfs(cur, usedEdges, List<int>.from(currentPath));
+    if (usedEdges.length == edges.length) return List<int>.from(currentPath);
+
+    // Kalan graf, mevcut düğümden başlayan bir Euler yoluna sahip olmalı:
+    // tek dereceli düğüm yok ya da tam 2 tane ve biri mevcut düğüm.
+    final odd = _oddNodes(nodeCount, adj, usedEdges);
+    if (odd.isNotEmpty && !(odd.length == 2 && odd.contains(cur))) return null;
+
+    final rest = _trailFrom(cur, adj, usedEdges, edges.length - usedEdges.length);
+    if (rest == null) return null;
+    return [...currentPath, ...rest.skip(1)];
+  }
+
+  static List<int> _oddNodes(
+    int nodeCount,
+    List<List<_EdgeNeighbor>> adj,
+    Set<int> usedEdges,
+  ) {
+    final odd = <int>[];
+    for (int i = 0; i < nodeCount; i++) {
+      final deg = adj[i].where((n) => !usedEdges.contains(n.edgeIndex)).length;
+      if (deg.isOdd) odd.add(i);
+    }
+    return odd;
+  }
+
+  /// [start]'tan kullanılmamış kenarlar üzerinde Hierholzer turu.
+  /// Kalan kenarların hepsi tek bir yolda toplanamıyorsa (bağlantısız) null döner.
+  static List<int>? _trailFrom(
+    int start,
+    List<List<_EdgeNeighbor>> adj,
+    Set<int> usedEdges,
+    int remainingCount,
+  ) {
+    final used = Set<int>.from(usedEdges);
+    final cursor = List<int>.filled(adj.length, 0);
+    final stack = <int>[start];
+    final trail = <int>[];
+
+    while (stack.isNotEmpty) {
+      final v = stack.last;
+      final list = adj[v];
+      while (cursor[v] < list.length && used.contains(list[cursor[v]].edgeIndex)) {
+        cursor[v]++;
+      }
+      if (cursor[v] == list.length) {
+        trail.add(stack.removeLast());
+      } else {
+        final next = list[cursor[v]];
+        used.add(next.edgeIndex);
+        stack.add(next.targetNode);
+      }
+    }
+
+    if (trail.length != remainingCount + 1) return null;
+    return trail.reversed.toList();
   }
 
   /// Oyuncunun mevcut tahta durumuna göre bir sonraki akıllı ipucu adımını üretir.
@@ -178,7 +201,7 @@ class EulerSolver {
         validStartNodes: validStarts,
         fullSolution: fullSol,
         upcomingSteps: upcoming,
-        message: 'Başlangıç noktası ve ilk yön belirlendi! 💡',
+        kind: HintKind.start,
       );
     }
 
@@ -203,7 +226,7 @@ class EulerSolver {
         validStartNodes: validStarts,
         fullSolution: continuation,
         upcomingSteps: upcoming,
-        message: 'Doğru sonraki adım bağlandı! 💡',
+        kind: HintKind.next,
       );
     }
 
@@ -237,9 +260,7 @@ class EulerSolver {
             validStartNodes: validStarts,
             fullSolution: candidateSol,
             upcomingSteps: upcoming,
-            message: rollbackCount <= 2
-                ? 'Son $rollbackCount hatalı hamle geri alındı ve doğru yön bağlandı! 💡'
-                : '$rollbackCount hamle önceki çıkmaz sokaktan doğru yola dönüldü! 💡',
+            kind: HintKind.rollback,
           );
         }
       }
@@ -263,7 +284,7 @@ class EulerSolver {
         validStartNodes: validStarts,
         fullSolution: fullSol,
         upcomingSteps: upcoming,
-        message: 'Bu bulmaca sadece işaretlenen başlangıç noktasından çözülebilir! 💡',
+        kind: HintKind.wrongStart,
       );
     }
 

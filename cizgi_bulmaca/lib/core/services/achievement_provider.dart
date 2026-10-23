@@ -176,6 +176,24 @@ class AchievementProvider extends ChangeNotifier {
       color: Color(0xFFE040FB),
     ),
     AchievementDef(
+      id: 'expert_master_10',
+      titleTr: 'Uzman Çırak',
+      titleEn: 'Expert Apprentice',
+      subtitleTr: 'Uzman modda 10 level tamamla',
+      subtitleEn: 'Complete 10 levels in Expert mode',
+      icon: Icons.diamond_rounded,
+      color: Color(0xFF3D5AFE),
+    ),
+    AchievementDef(
+      id: 'expert_master_50',
+      titleTr: 'Çizgi Efsanesi',
+      titleEn: 'Line Legend',
+      subtitleTr: 'Uzman modda 50 level tamamla',
+      subtitleEn: 'Complete 50 levels in Expert mode',
+      icon: Icons.diamond_rounded,
+      color: Color(0xFF3D5AFE),
+    ),
+    AchievementDef(
       id: 'marathon_25',
       titleTr: 'Maraton Koşucusu',
       titleEn: 'Marathon Runner',
@@ -192,6 +210,24 @@ class AchievementProvider extends ChangeNotifier {
       subtitleEn: 'Complete 100 levels in total',
       icon: Icons.emoji_events_rounded,
       color: Color(0xFF2196F3),
+    ),
+    AchievementDef(
+      id: 'marathon_500',
+      titleTr: 'Durdurulamaz',
+      titleEn: 'Unstoppable',
+      subtitleTr: 'Toplam 500 level tamamla',
+      subtitleEn: 'Complete 500 levels in total',
+      icon: Icons.military_tech_rounded,
+      color: Color(0xFF2196F3),
+    ),
+    AchievementDef(
+      id: 'star_hunter_1000',
+      titleTr: 'Galaksi Sahibi',
+      titleEn: 'Galaxy Owner',
+      subtitleTr: '1000 yıldız topla',
+      subtitleEn: 'Collect 1000 stars',
+      icon: Icons.auto_awesome_rounded,
+      color: Color(0xFFFFC93C),
     ),
     AchievementDef(
       id: 'hint_user',
@@ -236,9 +272,7 @@ class AchievementProvider extends ChangeNotifier {
 
   void _checkAchievements() {
     final gp = _gameProvider;
-    final totalCompleted = gp.completedLevelsCount(0) +
-        gp.completedLevelsCount(1) +
-        gp.completedLevelsCount(2);
+    final totalCompleted = gp.totalCompletedLevels;
 
     // İlk Adım
     if (totalCompleted >= 1) _unlock('first_step');
@@ -248,6 +282,7 @@ class AchievementProvider extends ChangeNotifier {
     if (gp.totalStars >= 50) _unlock('star_hunter_50');
     if (gp.totalStars >= 100) _unlock('star_hunter_100');
     if (gp.totalStars >= 500) _unlock('star_hunter_500');
+    if (gp.totalStars >= 1000) _unlock('star_hunter_1000');
 
     // Kolay Usta
     if (gp.completedLevelsCount(0) >= 10) _unlock('easy_master_10');
@@ -261,9 +296,14 @@ class AchievementProvider extends ChangeNotifier {
     if (gp.completedLevelsCount(2) >= 10) _unlock('hard_master_10');
     if (gp.completedLevelsCount(2) >= 50) _unlock('hard_master_50');
 
+    // Uzman
+    if (gp.completedLevelsCount(3) >= 10) _unlock('expert_master_10');
+    if (gp.completedLevelsCount(3) >= 50) _unlock('expert_master_50');
+
     // Maraton
     if (totalCompleted >= 25) _unlock('marathon_25');
     if (totalCompleted >= 100) _unlock('marathon_100');
+    if (totalCompleted >= 500) _unlock('marathon_500');
   }
 
   /// Hız Şeytanı — 5 saniye altında tamamlama (game_screen'den çağrılacak)

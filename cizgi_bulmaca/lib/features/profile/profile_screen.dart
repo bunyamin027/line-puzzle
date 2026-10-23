@@ -20,9 +20,7 @@ class ProfileScreen extends StatelessWidget {
     final achievementProvider = context.watch<AchievementProvider>();
     final l10n = context.l10n;
 
-    final totalCompleted = gameProvider.completedLevelsCount(0) +
-        gameProvider.completedLevelsCount(1) +
-        gameProvider.completedLevelsCount(2);
+    final totalCompleted = gameProvider.totalCompletedLevels;
 
     return Scaffold(
       appBar: AppBar(
@@ -132,31 +130,18 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          _DifficultyProgressRow(
-            difficulty: Difficulty.easy,
-            completed: gameProvider.completedLevelsCount(0),
-            total: gameProvider.totalLevelsForDifficulty(0),
-            progress: gameProvider.progressForDifficulty(0),
-            color: AppColors.difficultyEasy,
-          ),
-          const SizedBox(height: 12),
-          _DifficultyProgressRow(
-            difficulty: Difficulty.medium,
-            completed: gameProvider.completedLevelsCount(1),
-            total: gameProvider.totalLevelsForDifficulty(1),
-            progress: gameProvider.progressForDifficulty(1),
-            color: AppColors.difficultyMedium,
-          ),
-          const SizedBox(height: 12),
-          _DifficultyProgressRow(
-            difficulty: Difficulty.hard,
-            completed: gameProvider.completedLevelsCount(2),
-            total: gameProvider.totalLevelsForDifficulty(2),
-            progress: gameProvider.progressForDifficulty(2),
-            color: AppColors.difficultyHard,
-          ),
+          for (final difficulty in Difficulty.values) ...[
+            _DifficultyProgressRow(
+              difficulty: difficulty,
+              completed: gameProvider.completedLevelsCount(difficulty.index),
+              total: gameProvider.totalLevelsForDifficulty(difficulty.index),
+              progress: gameProvider.progressForDifficulty(difficulty.index),
+              color: difficulty.color,
+            ),
+            const SizedBox(height: 12),
+          ],
 
-          const SizedBox(height: 28),
+          const SizedBox(height: 16),
 
           // ─── Başarımlar ────────────────────────────
           Row(

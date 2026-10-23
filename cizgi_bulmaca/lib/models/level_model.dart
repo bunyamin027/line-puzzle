@@ -4,7 +4,8 @@ import 'dart:ui';
 /// Her bir bulmaca level'ını temsil eder.
 class LevelModel {
   final int id;
-  final String name;
+  final String name;                 // Türkçe isim
+  final String? nameEn;              // İngilizce isim (yoksa Türkçe kullanılır)
   final List<Offset> nodes;         // Düğüm noktaları
   final List<List<int>> edges;      // Kenar bağlantıları [fromIndex, toIndex]
   final List<int>? solutionPath;    // Çözüm yolu (index sırası)
@@ -14,6 +15,7 @@ class LevelModel {
   const LevelModel({
     required this.id,
     required this.name,
+    this.nameEn,
     required this.nodes,
     required this.edges,
     this.solutionPath,
@@ -21,11 +23,15 @@ class LevelModel {
     required this.parMoves,
   });
 
+  String localizedName(String locale) =>
+      locale == 'en' ? (nameEn ?? name) : name;
+
   /// JSON'dan level oluştur
   factory LevelModel.fromJson(Map<String, dynamic> json) {
     return LevelModel(
       id: json['id'] as int,
       name: json['name'] as String? ?? 'Level ${json['id']}',
+      nameEn: json['nameEn'] as String?,
       nodes: (json['nodes'] as List).map((n) {
         final coords = n as List;
         return Offset(
@@ -49,6 +55,7 @@ class LevelModel {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
+        'nameEn': nameEn,
         'nodes': nodes.map((n) => [n.dx, n.dy]).toList(),
         'edges': edges,
         'solution': solutionPath,

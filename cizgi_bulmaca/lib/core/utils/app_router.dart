@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
@@ -11,6 +12,31 @@ import '../../features/profile/profile_screen.dart';
 /// Çizgi Bulmaca — GoRouter Yapılandırması
 class AppRouter {
   AppRouter._();
+
+  /// Solarak ve hafifçe yukarı kayarak açılan sayfa geçişi.
+  /// Yalnızca `go` ile açılan kök ekranlarda kullanılır; push edilen ekranlar
+  /// iOS'ta kenardan kaydırarak geri dönebilmek için varsayılan sayfayı korur.
+  static CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
+    return CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 380),
+      reverseTransitionDuration: const Duration(milliseconds: 280),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(curved),
+            child: ScaleTransition(
+              scale: Tween(begin: 0.985, end: 1.0).animate(curved),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   static final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -26,14 +52,14 @@ class AppRouter {
       GoRoute(
         path: '/onboarding',
         name: 'onboarding',
-        builder: (context, state) => const OnboardingScreen(),
+        pageBuilder: (context, state) => _page(state, const OnboardingScreen()),
       ),
 
       // Ana Sayfa (Mod Seçimi)
       GoRoute(
         path: '/home',
         name: 'home',
-        builder: (context, state) => const HomeScreen(),
+        pageBuilder: (context, state) => _page(state, const HomeScreen()),
       ),
 
       // Level Haritası

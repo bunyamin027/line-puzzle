@@ -1,3 +1,4 @@
+import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
@@ -8,12 +9,18 @@ import 'ad_service.dart';
 class SettingsProvider extends ChangeNotifier {
   bool _soundEnabled = true;
   bool _hapticEnabled = true;
-  String _locale = 'tr';
+  String _locale = _deviceLocale();
   bool _onboardingCompleted = false;
   bool _adsRemoved = false;
 
   SettingsProvider() {
     _loadPreferences();
+  }
+
+  /// İlk açılışta cihaz dili Türkçe ise 'tr', aksi halde 'en'
+  static String _deviceLocale() {
+    final code = PlatformDispatcher.instance.locale.languageCode;
+    return code == 'tr' ? 'tr' : 'en';
   }
 
   // ─── Getters ─────────────────────────────────────────────
@@ -66,7 +73,7 @@ class SettingsProvider extends ChangeNotifier {
 
     _soundEnabled = prefs.getBool(AppConstants.keySoundEnabled) ?? true;
     _hapticEnabled = prefs.getBool(AppConstants.keyHapticEnabled) ?? true;
-    _locale = prefs.getString(AppConstants.keyLocale) ?? 'tr';
+    _locale = prefs.getString(AppConstants.keyLocale) ?? _deviceLocale();
     _onboardingCompleted = prefs.getBool(AppConstants.keyOnboardingCompleted) ?? false;
     _adsRemoved = prefs.getBool(AppConstants.keyAdsRemoved) ?? false;
 

@@ -21,6 +21,7 @@ abstract class AppStrings {
   String get difficultyEasy;
   String get difficultyMedium;
   String get difficultyHard;
+  String get difficultyExpert;
   String get difficultyModes;
   String get totalLevelsCount;
 
@@ -72,6 +73,22 @@ abstract class AppStrings {
   String get congratulations;
   String get mainMenu;
   String formatTime(int minutes, int seconds);
+  String get hintStartMsg;
+  String get hintNextMsg;
+  String hintRollbackMsg(int count);
+  String get hintWrongStartMsg;
+  String get guideFullSolution;
+  String get guideNextSteps;
+  String get resultPerfect;
+  String get resultGreat;
+  String get resultGood;
+  String get replay;
+  String get nextLevel;
+  String get difficultyCompleted;
+  String get hintsUsedLabel;
+  String get noHintBonus;
+  String get timeLabel;
+  String get starRule;
 
   // ─── Ayarlar ────────────────────────────────────────────
   String get settings;
@@ -163,9 +180,11 @@ class AppStringsTr implements AppStrings {
   @override
   String get difficultyHard => 'Zor';
   @override
+  String get difficultyExpert => 'Uzman';
+  @override
   String get difficultyModes => 'Zorluk Modları';
   @override
-  String get totalLevelsCount => '600+ Seviye';
+  String get totalLevelsCount => '1200 Seviye';
 
   @override
   String get skip => 'Geç';
@@ -180,7 +199,7 @@ class AppStringsTr implements AppStrings {
   @override
   String get onboarding2Title => 'Sana Uygun Zorluk';
   @override
-  String get onboarding2Subtitle => 'Kolay, Orta veya Zor —\nkendi hızında ilerle.';
+  String get onboarding2Subtitle => 'Kolay, Orta, Zor ve Uzman —\n1200 seviyede kendi hızında ilerle.';
   @override
   String get onboarding3Title => 'Yıldız Kazan, Rekor Kır';
   @override
@@ -192,7 +211,7 @@ class AppStringsTr implements AppStrings {
   String levelAndName(int level, String name) => 'Seviye $level • $name';
   @override
   String levelProgress(int unlocked, int total, int completed) =>
-      'Seviye $unlocked / $total • $completed tamamlandı';
+      '$completed / $total tamamlandı';
   @override
   String get map => 'Harita';
   @override
@@ -259,6 +278,40 @@ class AppStringsTr implements AppStrings {
   @override
   String formatTime(int minutes, int seconds) =>
       '${minutes > 0 ? '$minutes dk ' : ''}$seconds sn';
+  @override
+  String get hintStartMsg => 'Başlangıç noktası ve ilk yön belirlendi! 💡';
+  @override
+  String get hintNextMsg => 'Doğru sonraki adım bağlandı! 💡';
+  @override
+  String hintRollbackMsg(int count) =>
+      '$count hatalı hamle geri alındı, doğru yön bağlandı! 💡';
+  @override
+  String get hintWrongStartMsg =>
+      'Bu bulmaca yalnızca işaretli başlangıç noktasından çözülebilir! 💡';
+  @override
+  String get guideFullSolution => 'Çözüm Kılavuzu: Numaraları sırayla takip et';
+  @override
+  String get guideNextSteps => 'İpucu: Sonraki adımlar parlıyor';
+  @override
+  String get resultPerfect => 'Mükemmel!';
+  @override
+  String get resultGreat => 'Harika!';
+  @override
+  String get resultGood => 'Tamamlandı!';
+  @override
+  String get replay => 'Tekrar';
+  @override
+  String get nextLevel => 'Sonraki Seviye';
+  @override
+  String get difficultyCompleted => 'Bu modun tüm seviyelerini bitirdin! 🏆';
+  @override
+  String get hintsUsedLabel => 'ipucu';
+  @override
+  String get noHintBonus => 'İpucusuz';
+  @override
+  String get timeLabel => 'süre';
+  @override
+  String get starRule => 'İpucu kullanmadan ve az geri alarak 3 yıldız kazan';
 
   @override
   String get settings => 'Ayarlar';
@@ -373,9 +426,11 @@ class AppStringsEn implements AppStrings {
   @override
   String get difficultyHard => 'Hard';
   @override
+  String get difficultyExpert => 'Expert';
+  @override
   String get difficultyModes => 'Difficulty Modes';
   @override
-  String get totalLevelsCount => '600+ Levels';
+  String get totalLevelsCount => '1200 Levels';
 
   @override
   String get skip => 'Skip';
@@ -392,7 +447,7 @@ class AppStringsEn implements AppStrings {
   String get onboarding2Title => 'Difficulty For You';
   @override
   String get onboarding2Subtitle =>
-      'Easy, Medium, or Hard —\nprogress at your own pace.';
+      'Easy, Medium, Hard and Expert —\n1200 levels at your own pace.';
   @override
   String get onboarding3Title => 'Earn Stars, Break Records';
   @override
@@ -405,7 +460,7 @@ class AppStringsEn implements AppStrings {
   String levelAndName(int level, String name) => 'Level $level • $name';
   @override
   String levelProgress(int unlocked, int total, int completed) =>
-      'Level $unlocked / $total • $completed completed';
+      '$completed / $total completed';
   @override
   String get map => 'Map';
   @override
@@ -472,6 +527,40 @@ class AppStringsEn implements AppStrings {
   @override
   String formatTime(int minutes, int seconds) =>
       '${minutes > 0 ? '$minutes m ' : ''}$seconds s';
+  @override
+  String get hintStartMsg => 'Start point and first direction revealed! 💡';
+  @override
+  String get hintNextMsg => 'Correct next step connected! 💡';
+  @override
+  String hintRollbackMsg(int count) =>
+      'Undid $count wrong moves and connected the right way! 💡';
+  @override
+  String get hintWrongStartMsg =>
+      'This puzzle can only be solved from the marked start point! 💡';
+  @override
+  String get guideFullSolution => 'Solution Guide: Follow the numbers in order';
+  @override
+  String get guideNextSteps => 'Hint: Next steps are glowing';
+  @override
+  String get resultPerfect => 'Perfect!';
+  @override
+  String get resultGreat => 'Great!';
+  @override
+  String get resultGood => 'Completed!';
+  @override
+  String get replay => 'Replay';
+  @override
+  String get nextLevel => 'Next Level';
+  @override
+  String get difficultyCompleted => 'You finished every level in this mode! 🏆';
+  @override
+  String get hintsUsedLabel => 'hints';
+  @override
+  String get noHintBonus => 'No hints';
+  @override
+  String get timeLabel => 'time';
+  @override
+  String get starRule => 'Earn 3 stars with no hints and few undos';
 
   @override
   String get settings => 'Settings';
@@ -556,5 +645,9 @@ class AppStringsEn implements AppStrings {
 
 /// BuildContext için kolay erişim extension'ı
 extension AppStringsX on BuildContext {
+  /// build() içinde: dil değişince widget'ı yeniden çizer
   AppStrings get l10n => AppStrings.of(this);
+
+  /// Olay işleyicileri ve callback'ler için (dinlemez; build dışında watch yasak)
+  AppStrings get l10nRead => AppStrings.get(read<SettingsProvider>().locale);
 }

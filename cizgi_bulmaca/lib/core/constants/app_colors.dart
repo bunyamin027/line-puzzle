@@ -33,6 +33,7 @@ class AppColors {
   static const Color difficultyEasy = Color(0xFF3ADEB0);    // Mint Yeşil
   static const Color difficultyMedium = Color(0xFFFFAA33);  // Sarı/Turuncu
   static const Color difficultyHard = Color(0xFFE040FB);    // Mor/Pembe
+  static const Color difficultyExpert = Color(0xFF3D5AFE);  // Kozmik Mavi
 
   // ─── Gradient Setleri ───────────────────────────────────
   static const LinearGradient primaryGradient = LinearGradient(
@@ -64,6 +65,22 @@ class AppColors {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
+
+  static const LinearGradient expertGradient = LinearGradient(
+    colors: [Color(0xFF3D5AFE), Color(0xFF00C6FF)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  // ─── Kutlama / Efekt Renkleri ───────────────────────────
+  static const List<Color> confetti = [
+    Color(0xFF6C4CF5),
+    Color(0xFF3ADEB0),
+    Color(0xFFFFC93C),
+    Color(0xFFFF5C5C),
+    Color(0xFFE040FB),
+    Color(0xFF00C6FF),
+  ];
 
   // ─── Kullanıcı Tema Preset Renkleri ─────────────────────
   static const List<Color> themePresets = [

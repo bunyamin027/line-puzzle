@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,14 +8,17 @@ import '../../core/constants/app_text_styles.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/services/game_provider.dart';
 import '../../core/services/level_repository.dart';
+import '../../core/services/settings_provider.dart';
+import '../../core/widgets/pressable_scale.dart';
+import '../../core/widgets/staggered_entrance.dart';
 import '../../models/difficulty.dart';
 
 /// Çizgi Bulmaca — Level Haritası Ekranı
-/// Seçilen moda ait 200 seviye grid şeklinde dizili.
+/// Seçilen moda ait seviyeler grid şeklinde dizili.
 /// Aktif seviye vurgulanır ve otomatik scroll yapılır.
 /// Altta hızlı "Devam Et" çubuğu yer alır.
 class LevelMapScreen extends StatefulWidget {
-  final int difficulty; // 0=kolay, 1=orta, 2=zor
+  final int difficulty; // 0=kolay, 1=orta, 2=zor, 3=uzman
 
   const LevelMapScreen({super.key, required this.difficulty});
 
@@ -25,33 +29,11 @@ class LevelMapScreen extends StatefulWidget {
 class _LevelMapScreenState extends State<LevelMapScreen> {
   final ScrollController _scrollController = ScrollController();
 
-  Difficulty get _difficulty => Difficulty.values[widget.difficulty.clamp(0, 2)];
+  Difficulty get _difficulty => Difficulty.fromIndex(widget.difficulty);
 
-  LinearGradient get _gradient {
-    switch (widget.difficulty) {
-      case 0:
-        return AppColors.easyGradient;
-      case 1:
-        return AppColors.mediumGradient;
-      case 2:
-        return AppColors.hardGradient;
-      default:
-        return AppColors.primaryGradient;
-    }
-  }
+  LinearGradient get _gradient => _difficulty.gradient;
 
-  Color get _color {
-    switch (widget.difficulty) {
-      case 0:
-        return AppColors.difficultyEasy;
-      case 1:
-        return AppColors.difficultyMedium;
-      case 2:
-        return AppColors.difficultyHard;
-      default:
-        return AppColors.primary;
-    }
-  }
+  Color get _color => _difficulty.color;
 
   @override
   void initState() {
@@ -91,6 +73,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
     final totalLevels = gameProvider.totalLevelsForDifficulty(widget.difficulty);
     final activeLevel = gameProvider.lastUnlockedLevel(widget.difficulty);
     final activeLevelModel = LevelRepository.getLevel(widget.difficulty, activeLevel);
+    final locale = context.watch<SettingsProvider>().locale;
 
     return Scaffold(
       appBar: AppBar(
@@ -153,7 +136,7 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                 final isCompleted = gameProvider.getLevelProgress(widget.difficulty, levelNumber)?.isCompleted ?? false;
                 final isActive = levelNumber == activeLevel;
 
-                return GestureDetector(
+                final tile = PressableScale(
                   onTap: isUnlocked
                       ? () => context.push('/game/$levelNumber?d=${widget.difficulty}')
                       : null,
@@ -255,6 +238,16 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                     ),
                   ),
                 );
+
+                // Satır satır dalga halinde belirme
+                return StaggeredEntrance(
+                  key: ValueKey(levelNumber),
+                  delay: Duration(milliseconds: 30 * (index % 4) + 12 * min(index ~/ 4, 8)),
+                  duration: const Duration(milliseconds: 380),
+                  beginOffset: const Offset(0, 0.25),
+                  beginScale: 0.85,
+                  child: isActive ? _PulsingGlow(color: AppColors.accent, child: tile) : tile,
+                );
               },
             ),
           ),
@@ -298,7 +291,9 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
                           ),
                         ),
                         Text(
-                          '${l10n.level} $activeLevel • ${activeLevelModel.name}',
+                          '${l10n.level} $activeLevel • ${activeLevelModel.localizedName(locale)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: AppTextStyles.titleMedium.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
@@ -328,6 +323,51 @@ class _LevelMapScreenState extends State<LevelMapScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Aktif seviye kutucuğunun etrafında nabız gibi atan ışıma
+class _PulsingGlow extends StatefulWidget {
+  final Widget child;
+  final Color color;
+
+  const _PulsingGlow({required this.child, required this.color});
+
+  @override
+  State<_PulsingGlow> createState() => _PulsingGlowState();
+}
+
+class _PulsingGlowState extends State<_PulsingGlow> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) => DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+          boxShadow: [
+            BoxShadow(
+              color: widget.color.withValues(alpha: 0.25 + 0.35 * _controller.value),
+              blurRadius: 8 + 10 * _controller.value,
+              spreadRadius: 1 + 2 * _controller.value,
+            ),
+          ],
+        ),
+        child: child,
+      ),
+      child: widget.child,
     );
   }
 }

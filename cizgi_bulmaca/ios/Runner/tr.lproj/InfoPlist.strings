@@ -1,0 +1,4 @@
+/* Cihaz ana ekranındaki ad — App Store Türkçe adı "Çizgi Bulmaca: Çiz, Çöz, Kazan" ile uyumlu (Guideline 2.3.8) */
+"CFBundleDisplayName" = "Çizgi Bulmaca";
+"CFBundleName" = "Çizgi Bulmaca";
+"NSUserTrackingUsageDescription" = "Size daha uygun ve kaliteli reklamlar sunabilmemiz için izin gereklidir.";

@@ -1,3 +1,5 @@
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -9,10 +11,13 @@ import '../../core/localization/app_strings.dart';
 import '../../core/services/game_provider.dart';
 import '../../core/services/level_repository.dart';
 import '../../core/services/settings_provider.dart';
+import '../../core/widgets/constellation_background.dart';
+import '../../core/widgets/pressable_scale.dart';
+import '../../core/widgets/staggered_entrance.dart';
 import '../../models/difficulty.dart';
 
 /// Çizgi Bulmaca — Ana Sayfa / Mod Seçim Ekranı
-/// Kaldığın Yerden Devam Et hero kartı + Kolay, Orta, Zor mod kartları.
+/// Kaldığın Yerden Devam Et hero kartı + Kolay, Orta, Zor, Uzman mod kartları.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,7 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   int _titleTapCount = 0;
   DateTime? _lastTitleTapTime;
 
+  /// Geliştirici test kısayolu — yalnızca debug build'lerde çalışır.
+  /// Release'te gizli bir IAP bypass'ı olması App Review reddine yol açar.
   void _onTitleTapped() {
+    if (!kDebugMode) return;
     final now = DateTime.now();
     if (_lastTitleTapTime == null ||
         now.difference(_lastTitleTapTime!) > const Duration(seconds: 2)) {
@@ -82,161 +90,171 @@ class _HomeScreenState extends State<HomeScreen> {
         ? gameProvider.lastPlayedLevel
         : gameProvider.lastUnlockedLevel(continueDiff);
     final continueLevelModel = LevelRepository.getLevel(continueDiff, continueLevel);
-    final continueDifficultyModel = Difficulty.values[continueDiff.clamp(0, 2)];
+    final continueDifficultyModel = Difficulty.fromIndex(continueDiff);
+    final locale = context.watch<SettingsProvider>().locale;
 
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.paddingL,
-            vertical: AppConstants.paddingM,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: ConstellationBackground(
+              color: Theme.of(context).colorScheme.primary,
+              opacity: Theme.of(context).brightness == Brightness.dark ? 1.0 : 0.6,
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Üst Bar
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.paddingL,
+                vertical: AppConstants.paddingM,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Yıldız sayacı
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(AppConstants.borderRadius),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.star_rounded,
-                          color: AppColors.accent,
-                          size: 24,
+                  // Üst Bar
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Yıldız sayacı
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(AppConstants.borderRadius),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${gameProvider.totalStars}',
-                          style: AppTextStyles.titleMedium.copyWith(
-                            color: AppColors.accent,
-                            fontWeight: FontWeight.w700,
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.star_rounded,
+                              color: AppColors.accent,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${gameProvider.totalStars}',
+                              style: AppTextStyles.titleMedium.copyWith(
+                                color: AppColors.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Başlık (debug'da 8 kere tıklanınca Premium açar).
+                      // Dar ekranlarda (ör. 6.1") taşmak yerine küçülür.
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _onTitleTapped,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                l10n.appName,
+                                maxLines: 1,
+                                style: AppTextStyles.headlineSmall.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
 
-                  // Başlık (8 kere tıklanınca Premium açar)
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _onTitleTapped,
-                    child: Text(
-                      l10n.appName,
-                      style: AppTextStyles.headlineSmall.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-
-                  // Menü butonları
-                  Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => context.push('/store'),
-                        icon: const Icon(Icons.store_rounded),
-                        tooltip: l10n.storeTooltip,
-                      ),
-                      IconButton(
-                        onPressed: () => context.push('/profile'),
-                        icon: const Icon(Icons.person_rounded),
-                        tooltip: l10n.profileTooltip,
-                      ),
-                      IconButton(
-                        onPressed: () => context.push('/settings'),
-                        icon: const Icon(Icons.settings_rounded),
-                        tooltip: l10n.settingsTooltip,
+                      // Menü butonları
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => context.push('/store'),
+                            icon: const Icon(Icons.store_rounded),
+                            tooltip: l10n.storeTooltip,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          IconButton(
+                            onPressed: () => context.push('/profile'),
+                            icon: const Icon(Icons.person_rounded),
+                            tooltip: l10n.profileTooltip,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          IconButton(
+                            onPressed: () => context.push('/settings'),
+                            icon: const Icon(Icons.settings_rounded),
+                            tooltip: l10n.settingsTooltip,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
 
-              const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-              // ─── Hero: Kaldığın Yerden Devam Et ───
-              _ContinueHeroCard(
-                difficulty: continueDifficultyModel,
-                levelNumber: continueLevel,
-                levelName: continueLevelModel.name,
-                onPlay: () => context.push('/game/$continueLevel?d=$continueDiff'),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Mod Seçim Başlığı
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    l10n.difficultyModes,
-                    style: AppTextStyles.headlineSmall.copyWith(
-                      fontWeight: FontWeight.w700,
+                  // ─── Hero: Kaldığın Yerden Devam Et ───
+                  StaggeredEntrance(
+                    beginScale: 0.94,
+                    child: _ContinueHeroCard(
+                      difficulty: continueDifficultyModel,
+                      levelNumber: continueLevel,
+                      levelName: continueLevelModel.localizedName(locale),
+                      onPlay: () => context.push('/game/$continueLevel?d=$continueDiff'),
                     ),
                   ),
-                  Text(
-                    l10n.totalLevelsCount,
-                    style: AppTextStyles.labelMedium.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5),
-                    ),
+
+                  const SizedBox(height: 32),
+
+                  // Mod Seçim Başlığı
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          l10n.difficultyModes,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.headlineSmall.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        l10n.totalLevelsCount,
+                        style: AppTextStyles.labelMedium.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 16),
+
+                  // Mod Kartları
+                  for (final difficulty in Difficulty.values)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: StaggeredEntrance(
+                        delay: Duration(milliseconds: 120 + 80 * difficulty.index),
+                        child: _DifficultyCard(
+                          difficulty: difficulty,
+                          levelCount: gameProvider.totalLevelsForDifficulty(difficulty.index),
+                          unlockedLevel: gameProvider.lastUnlockedLevel(difficulty.index),
+                          completedCount: gameProvider.completedLevelsCount(difficulty.index),
+                          progress: gameProvider.progressForDifficulty(difficulty.index),
+                          onTap: () => context.push('/levels/${difficulty.index}'),
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 24),
                 ],
               ),
-              const SizedBox(height: 16),
-
-              // Mod Kartları
-              _DifficultyCard(
-                difficulty: Difficulty.easy,
-                gradient: AppColors.easyGradient,
-                icon: Icons.sentiment_satisfied_rounded,
-                levelCount: AppConstants.easyLevelCount,
-                unlockedLevel: gameProvider.lastUnlockedLevel(0),
-                completedCount: gameProvider.completedLevelsCount(0),
-                progress: gameProvider.progressForDifficulty(0),
-                onTap: () => context.push('/levels/0'),
-                onPlay: () => context.push('/game/${gameProvider.lastUnlockedLevel(0)}?d=0'),
-              ),
-              const SizedBox(height: 14),
-
-              _DifficultyCard(
-                difficulty: Difficulty.medium,
-                gradient: AppColors.mediumGradient,
-                icon: Icons.psychology_rounded,
-                levelCount: AppConstants.mediumLevelCount,
-                unlockedLevel: gameProvider.lastUnlockedLevel(1),
-                completedCount: gameProvider.completedLevelsCount(1),
-                progress: gameProvider.progressForDifficulty(1),
-                onTap: () => context.push('/levels/1'),
-                onPlay: () => context.push('/game/${gameProvider.lastUnlockedLevel(1)}?d=1'),
-              ),
-              const SizedBox(height: 14),
-
-              _DifficultyCard(
-                difficulty: Difficulty.hard,
-                gradient: AppColors.hardGradient,
-                icon: Icons.local_fire_department_rounded,
-                levelCount: AppConstants.hardLevelCount,
-                unlockedLevel: gameProvider.lastUnlockedLevel(2),
-                completedCount: gameProvider.completedLevelsCount(2),
-                progress: gameProvider.progressForDifficulty(2),
-                onTap: () => context.push('/levels/2'),
-                onPlay: () => context.push('/game/${gameProvider.lastUnlockedLevel(2)}?d=2'),
-              ),
-
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -256,22 +274,13 @@ class _ContinueHeroCard extends StatelessWidget {
     required this.onPlay,
   });
 
-  LinearGradient get _gradient {
-    switch (difficulty) {
-      case Difficulty.easy:
-        return AppColors.easyGradient;
-      case Difficulty.medium:
-        return AppColors.mediumGradient;
-      case Difficulty.hard:
-        return AppColors.hardGradient;
-    }
-  }
+  LinearGradient get _gradient => difficulty.gradient;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
 
-    return GestureDetector(
+    return PressableScale(
       onTap: onPlay,
       child: Container(
         padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -341,27 +350,8 @@ class _ContinueHeroCard extends StatelessWidget {
               ),
             ),
 
-            // Oyna Butonu
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.play_arrow_rounded,
-                size: 38,
-                color: _gradient.colors.first,
-              ),
-            ),
+            // Oyna Butonu (nefes alan halka ile dikkat çeker)
+            _BreathingPlayButton(color: _gradient.colors.first),
           ],
         ),
       ),
@@ -372,35 +362,32 @@ class _ContinueHeroCard extends StatelessWidget {
 /// Zorluk modu kartı widget'ı
 class _DifficultyCard extends StatelessWidget {
   final Difficulty difficulty;
-  final LinearGradient gradient;
-  final IconData icon;
   final int levelCount;
   final int unlockedLevel;
   final int completedCount;
   final double progress; // 0.0 - 1.0
   final VoidCallback onTap;
-  final VoidCallback onPlay;
 
   const _DifficultyCard({
     required this.difficulty,
-    required this.gradient,
-    required this.icon,
     required this.levelCount,
     required this.unlockedLevel,
     required this.completedCount,
     required this.progress,
     required this.onTap,
-    required this.onPlay,
   });
+
+  LinearGradient get gradient => difficulty.gradient;
+  IconData get icon => difficulty.icon;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
 
-    return GestureDetector(
+    return PressableScale(
       onTap: onTap,
       child: Container(
-        height: 105,
+        height: 112,
         decoration: BoxDecoration(
           gradient: gradient,
           borderRadius: BorderRadius.circular(AppConstants.borderRadiusLarge),
@@ -447,9 +434,30 @@ class _DifficultyCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       l10n.levelProgress(unlockedLevel, levelCount, completedCount),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.bodyMedium.copyWith(
                         color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    // Mod ilerleme çubuğu (açılışta dolarak gelir)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Stack(
+                        children: [
+                          Container(height: 5, color: Colors.white.withValues(alpha: 0.25)),
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(begin: 0, end: progress),
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.easeOutCubic,
+                            builder: (context, value, _) => FractionallySizedBox(
+                              widthFactor: value.clamp(0.0, 1.0),
+                              child: Container(height: 5, color: Colors.white),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -490,3 +498,76 @@ class _DifficultyCard extends StatelessWidget {
   }
 }
 
+
+/// Hafifçe büyüyüp küçülen ve dışa halka yayan oynat butonu
+class _BreathingPlayButton extends StatefulWidget {
+  final Color color;
+
+  const _BreathingPlayButton({required this.color});
+
+  @override
+  State<_BreathingPlayButton> createState() => _BreathingPlayButtonState();
+}
+
+class _BreathingPlayButtonState extends State<_BreathingPlayButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      height: 76,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = _controller.value;
+          final breath = 1 + 0.06 * sin(t * 2 * pi);
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              // Yayılan halka
+              Container(
+                width: 58 + 18 * t,
+                height: 58 + 18 * t,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.6 * (1 - t)),
+                    width: 2,
+                  ),
+                ),
+              ),
+              Transform.scale(scale: breath, child: child),
+            ],
+          );
+        },
+        child: Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Icon(Icons.play_arrow_rounded, size: 38, color: widget.color),
+        ),
+      ),
+    );
+  }
+}

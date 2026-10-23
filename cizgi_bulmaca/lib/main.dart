@@ -8,6 +8,7 @@ import 'core/services/achievement_provider.dart';
 import 'core/services/ad_service.dart';
 import 'core/services/iap_service.dart';
 import 'core/utils/app_router.dart';
+import 'core/constants/app_constants.dart';
 
 /// Çizgi Bulmaca — Ana Giriş Noktası
 void main() async {
@@ -45,7 +46,11 @@ class CizgiBulmacaApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         // AchievementProvider GameProvider'a bağımlı
+        // lazy: false — kayıtlı başarımlar açılışta yüklensin; aksi halde ilk
+        // seviye bitişinde yükleme bitmeden kontrol yapılıp eski başarımlar
+        // yeniden bildiriliyordu.
         ChangeNotifierProxyProvider<GameProvider, AchievementProvider>(
+          lazy: false,
           create: (ctx) => AchievementProvider(ctx.read<GameProvider>()),
           update: (ctx, gameProvider, previous) =>
               previous ?? AchievementProvider(gameProvider),
@@ -60,7 +65,7 @@ class CizgiBulmacaApp extends StatelessWidget {
       child: Consumer2<ThemeProvider, SettingsProvider>(
         builder: (context, themeProvider, settingsProvider, child) {
           return MaterialApp.router(
-            title: settingsProvider.locale == 'en' ? 'Line Puzzle' : 'Çizgi Bulmaca',
+            title: AppConstants.appName,
             debugShowCheckedModeBanner: false,
             locale: Locale(settingsProvider.locale),
 

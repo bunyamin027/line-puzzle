@@ -1,0 +1,4 @@
+/* Cihaz ana ekranındaki ad — App Store İngilizce adı "Line Puzzle: Flow & Focus" ile uyumlu (Guideline 2.3.8) */
+"CFBundleDisplayName" = "Line Puzzle";
+"CFBundleName" = "Line Puzzle";
+"NSUserTrackingUsageDescription" = "Your permission helps us show you more relevant, higher-quality ads.";
